@@ -4,13 +4,20 @@ Each Worker is a Cloudflare Workers Builds project linked to this repo. Every pu
 deploys it, so nothing in this repo needs Cloudflare credentials. The `pipeline` deploy also applies D1
 migrations and upserts the source seed before `wrangler deploy`.
 
-| Worker            | Root directory  | Build command | Deploy command    | What the deploy does                                       |
-| ----------------- | --------------- | ------------- | ----------------- | ---------------------------------------------------------- |
-| `digest-pipeline` | `apps/pipeline` | _(empty)_     | `pnpm run deploy` | `d1 migrations apply` → seed upsert → `wrangler deploy`    |
-| `digest-ingress`  | `apps/ingress`  | _(empty)_     | `pnpm run deploy` | `wrangler deploy` (custom domain `hooks.dd.nipatiitti.fi`) |
+| Worker            | Root directory | Deploy command             | What the deploy does                                                          |
+| ----------------- | -------------- | -------------------------- | ----------------------------------------------------------------------------- |
+| `digest-pipeline` | _(empty)_      | `pnpm run deploy:pipeline` | D1 migrations → seed upsert → `wrangler deploy` → sync secrets                |
+| `digest-ingress`  | _(empty)_      | `pnpm run deploy:ingress`  | `wrangler deploy` (`hooks.dd.nipatiitti.fi`) → sync secrets → set the webhook |
 
-Workers Builds installs the whole pnpm workspace from the root lockfile, takes Node 24 from `.nvmrc` and pnpm
-from `packageManager`. Migrations must stay additive, since both Workers deploy from the same commit in parallel.
+Build command is empty for both. The root directory is the repo root: the root scripts hand off to the app with
+`pnpm --filter`, so Workers Builds installs the whole workspace from the root lockfile. It takes Node 24 from
+`.nvmrc` and pnpm from `packageManager`. Migrations must stay additive, since both Workers deploy from the same
+commit in parallel.
+
+Secrets are set once, as **build variables** on the Workers Builds project. After `wrangler deploy`,
+`scripts/sync-secrets.ts` copies them into the Worker's runtime secrets (`wrangler secret bulk`), and the ingress
+deploy then runs `scripts/set-webhook.ts`, which registers `https://hooks.dd.nipatiitti.fi/telegram` with the
+secret token. Both skip quietly when the variables aren't set.
 
 ## One-time setup
 
@@ -34,35 +41,28 @@ from `packageManager`. Migrations must stay additive, since both Workers deploy 
    per row of the table above:
    - The project name must equal `name` in that app's `wrangler.jsonc` (`digest-pipeline`, `digest-ingress`).
    - Production branch `main`; turn off builds for non-production branches.
-   - Optional build watch paths: `apps/<app>/*`, `packages/*`, `pnpm-lock.yaml`.
+   - Optional build watch paths: `apps/<app>/*`, `packages/*`, `scripts/*`, `pnpm-lock.yaml`.
    - If the pipeline deploy fails on `d1 migrations apply` with an auth error, give the build's API token
      **D1 Edit** (Settings → Builds → API token).
 
-5. **Secrets** (Worker → Settings → Variables and Secrets → Add, type _Secret_). They survive deploys.
+5. **Build variables** (Worker → Settings → Builds → Variables and secrets). Mark them as secrets.
 
-   | Worker            | Secret                    | Value              |
+   | Worker            | Variable                  | Value              |
    | ----------------- | ------------------------- | ------------------ |
    | `digest-pipeline` | `TELEGRAM_BOT_TOKEN`      | bot token          |
    | `digest-ingress`  | `TELEGRAM_BOT_TOKEN`      | bot token          |
    | `digest-ingress`  | `TELEGRAM_WEBHOOK_SECRET` | secret from step 2 |
 
+   The deploy copies them into runtime secrets and registers the webhook, so there's nothing else to set.
    `ANTHROPIC_API_KEY` isn't used yet.
 
-6. **Register the webhook** once ingress is live:
-
-   ```sh
-   curl -sS "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
-     -d url=https://hooks.dd.nipatiitti.fi/telegram \
-     -d secret_token=$TELEGRAM_WEBHOOK_SECRET \
-     -d 'allowed_updates=["message","callback_query"]'
-   ```
+6. Retry the deploys. The ingress log ends with `set-webhook: https://hooks.dd.nipatiitti.fi/telegram`.
 
 7. **Chat ID**: send `/start` to the bot and it replies with the chat ID. **Send it back** (comma-separate
    several). It goes in `TELEGRAM_CHAT_IDS` in both `wrangler.jsonc` files.
 
 ## Values to send back
 
-- D1 `database_id` for `digest`
 - Telegram chat ID(s) for the allowlist
 
 ## Checking it works

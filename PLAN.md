@@ -83,7 +83,7 @@ Traps:
 
 ## CI/CD
 
-Each Worker is a Cloudflare Workers Builds project linked to the repo (root directory `apps/<app>`, deploy command `pnpm run deploy`), so every push to `main` deploys without Cloudflare credentials in GitHub. The pipeline's deploy applies `wrangler d1 migrations apply digest --remote` and the source seed before `wrangler deploy`. Migrations stay additive. The GitHub workflow only runs `pnpm check`. Runtime secrets are set in the dashboard. One-time steps are in [DEPLOY.md](DEPLOY.md).
+Each Worker is a Cloudflare Workers Builds project linked to the repo (repo root, deploy command `pnpm run deploy:<app>`), so every push to `main` deploys without Cloudflare credentials in GitHub. The pipeline's deploy applies `wrangler d1 migrations apply digest --remote` and the source seed before `wrangler deploy`. Migrations stay additive. The GitHub workflow only runs `pnpm check`. Secrets are set once as Workers Builds build variables and copied into runtime secrets by the deploy. One-time steps are in [DEPLOY.md](DEPLOY.md).
 
 ## Order of work
 
