@@ -1,18 +1,18 @@
 {
-	"name": "daily-digest",
-	"private": true,
-	"type": "module",
-	"packageManager": "pnpm@10.28.0",
-	"engines": {
-		"node": ">=24"
-	},
-	"scripts": {
-		"check": "biome check . && pnpm -r --parallel typecheck",
-		"format": "biome check --write .",
-		"typecheck": "pnpm -r --parallel typecheck"
-	},
-	"devDependencies": {
-		"@biomejs/biome": "^2.6.3",
-		"typescript": "^6.0.3"
-	}
+  "name": "daily-digest",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "check": "biome check . && pnpm -r --parallel typecheck",
+    "format": "biome check --write .",
+    "typecheck": "pnpm -r --parallel typecheck"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.3",
+    "typescript": "^6.0.3"
+  }
 }
