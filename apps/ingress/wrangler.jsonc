@@ -1,0 +1,27 @@
+// Deployed by Workers Builds from apps/ingress on every push to main (see DEPLOY.md).
+// Values marked FILL IN come from the one-time Cloudflare setup.
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "digest-ingress",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "routes": [{ "pattern": "hooks.dd.nipatiitti.fi", "custom_domain": true }],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "digest",
+      // FILL IN: same ID as apps/pipeline
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "../../packages/db/migrations"
+    }
+  ],
+  "vars": {
+    // FILL IN: same list as apps/pipeline; only these chats can vote
+    "TELEGRAM_CHAT_IDS": ""
+  }
+  // Secrets (set in the dashboard, never here): TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET
+}

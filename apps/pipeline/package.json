@@ -1,0 +1,22 @@
+{
+  "name": "@digest/pipeline",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --persist-to ../../.wrangler/state",
+    "types": "wrangler types --strict-vars false",
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "wrangler d1 migrations apply digest --remote",
+    "db:seed": "mkdir -p .wrangler && node ../../packages/db/seed/to-sql.ts > .wrangler/seed.sql && wrangler d1 execute digest --remote --file .wrangler/seed.sql",
+    "deploy": "pnpm run db:migrate && pnpm run db:seed && wrangler deploy"
+  },
+  "dependencies": {
+    "@digest/core": "workspace:*",
+    "@digest/db": "workspace:*",
+    "@digest/telegram": "workspace:*",
+    "grammy": "^1.46.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.152.0"
+  }
+}
