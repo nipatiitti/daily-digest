@@ -1,5 +1,5 @@
 // Deployed by Workers Builds on every push to main (see DEPLOY.md).
-// TELEGRAM_CHAT_IDS is the only value still to fill in.
+// No placeholders left; secrets come from Workers Builds build variables.
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "digest-pipeline",
@@ -35,8 +35,8 @@
   },
   "workflows": [{ "binding": "DIGEST", "name": "digest", "class_name": "Digest" }],
   "vars": {
-    // FILL IN: comma-separated Telegram chat IDs that receive the digest (send /start to the bot to get yours)
-    "TELEGRAM_CHAT_IDS": ""
+    // Comma-separated Telegram chat IDs that receive the digest (send /start to the bot to get one)
+    "TELEGRAM_CHAT_IDS": "-5529066369"
   }
   // Secrets (set in the dashboard, never here): TELEGRAM_BOT_TOKEN
 }

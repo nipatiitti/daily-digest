@@ -61,10 +61,6 @@ secret token. Both skip quietly when the variables aren't set.
 7. **Chat ID**: send `/start` to the bot and it replies with the chat ID. **Send it back** (comma-separate
    several). It goes in `TELEGRAM_CHAT_IDS` in both `wrangler.jsonc` files.
 
-## Values to send back
-
-- Telegram chat ID(s) for the allowlist
-
 ## Checking it works
 
 - **Polling**: Workers Logs for `digest-pipeline` show a `fetched` line per source as polls come due.
