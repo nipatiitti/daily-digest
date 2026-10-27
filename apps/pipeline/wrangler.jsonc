@@ -22,7 +22,7 @@
     }
   ],
   "queues": {
-    "producers": [{ "binding": "FETCH_Q", "queue": "fetch-q" }],
+    "producers": [{ "binding": "FETCH_Q", "queue": "fetch-q" }, { "binding": "PROCESS_Q", "queue": "process-q" }],
     "consumers": [
       {
         "queue": "fetch-q",
@@ -30,13 +30,34 @@
         "max_concurrency": 5,
         "max_retries": 2,
         "dead_letter_queue": "fetch-dlq"
+      },
+      {
+        // Article IDs from the fetch consumer; batched so one bge-m3 call embeds up to 50 texts.
+        "queue": "process-q",
+        "max_batch_size": 50,
+        "max_batch_timeout": 5,
+        // One batch at a time: two concurrent batches about the same event would each start a story.
+        "max_concurrency": 1,
+        "max_retries": 2,
+        "dead_letter_queue": "process-dlq"
       }
     ]
   },
-  "workflows": [{ "binding": "DIGEST", "name": "digest", "class_name": "Digest" }],
+  "workflows": [
+    { "binding": "DIGEST", "name": "digest", "class_name": "Digest" },
+    { "binding": "STORY_EVAL", "name": "story-eval", "class_name": "StoryEval" }
+  ],
+  "ai": { "binding": "AI" },
+  "vectorize": [
+    // bge-m3, 1024-d, cosine. Created by scripts/ensure-resources.ts (or DEPLOY.md) with
+    // metadata indexes on published_at, category and source_id before the first insert.
+    { "binding": "VECTORS", "index_name": "digest-articles" }
+  ],
   "vars": {
     // Comma-separated Telegram chat IDs that receive the digest (send /start to the bot to get one)
-    "TELEGRAM_CHAT_IDS": "-5529066369"
+    "TELEGRAM_CHAT_IDS": "-5529066369",
+    // Claude spend per UTC day before the pipeline degrades (see packages/llm)
+    "DAILY_SPEND_CAP_USD": "2"
   }
-  // Secrets (set in the dashboard, never here): TELEGRAM_BOT_TOKEN
+  // Secrets (set in the dashboard, never here): TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY
 }

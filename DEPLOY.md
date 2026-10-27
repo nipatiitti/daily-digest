@@ -4,10 +4,10 @@ Each Worker is a Cloudflare Workers Builds project linked to this repo. Every pu
 deploys it, so nothing in this repo needs Cloudflare credentials. The `pipeline` deploy also applies D1
 migrations and upserts the source seed before `wrangler deploy`.
 
-| Worker            | Root directory | Deploy command             | What the deploy does                                                          |
-| ----------------- | -------------- | -------------------------- | ----------------------------------------------------------------------------- |
-| `digest-pipeline` | _(empty)_      | `pnpm run deploy:pipeline` | D1 migrations → seed upsert → `wrangler deploy` → sync secrets                |
-| `digest-ingress`  | _(empty)_      | `pnpm run deploy:ingress`  | `wrangler deploy` (`hooks.dd.nipatiitti.fi`) → sync secrets → set the webhook |
+| Worker            | Root directory | Deploy command             | What the deploy does                                                                                                          |
+| ----------------- | -------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `digest-pipeline` | _(empty)_      | `pnpm run deploy:pipeline` | `pnpm check` → D1 migrations → seed upsert → create missing queues and the Vectorize index → `wrangler deploy` → sync secrets |
+| `digest-ingress`  | _(empty)_      | `pnpm run deploy:ingress`  | `pnpm check` → `wrangler deploy` (`hooks.dd.nipatiitti.fi`) → sync secrets → set the webhook                                  |
 
 Build command is empty for both. The root directory is the repo root: the root scripts hand off to the app with
 `pnpm --filter`, so Workers Builds installs the whole workspace from the root lockfile. It takes Node 24 from
@@ -27,9 +27,19 @@ secret token. Both skip quietly when the variables aren't set.
    npx wrangler d1 create digest
    npx wrangler queues create fetch-q
    npx wrangler queues create fetch-dlq
+   npx wrangler queues create process-q
+   npx wrangler queues create process-dlq
+   npx wrangler vectorize create digest-articles --dimensions=1024 --metric=cosine
+   npx wrangler vectorize create-metadata-index digest-articles --property-name=published_at --type=number
+   npx wrangler vectorize create-metadata-index digest-articles --property-name=category --type=string
+   npx wrangler vectorize create-metadata-index digest-articles --property-name=source_id --type=number
    ```
 
-   The `digest` Workflow is created by the first deploy. `nipatiitti.fi` must be a zone on the same account,
+   The pipeline deploy runs `scripts/ensure-resources.ts`, which tries the queue and Vectorize commands itself
+   and skips the ones that already exist. If the build token lacks Queues or Vectorize permission the deploy
+   log says so and `wrangler deploy` fails on the missing binding; then run the commands above once by hand
+   or give the token those permissions. The metadata indexes must exist before the first vector is inserted.
+   The `digest` and `story-eval` Workflows are created by the first deploy. `nipatiitti.fi` must be a zone on the same account,
    because the ingress deploy attaches `hooks.dd.nipatiitti.fi` as a custom domain.
 
 2. **Telegram bot**: create it with @BotFather and keep the token. Make a webhook secret with
@@ -52,9 +62,12 @@ secret token. Both skip quietly when the variables aren't set.
    | `digest-pipeline` | `TELEGRAM_BOT_TOKEN`      | bot token          |
    | `digest-ingress`  | `TELEGRAM_BOT_TOKEN`      | bot token          |
    | `digest-ingress`  | `TELEGRAM_WEBHOOK_SECRET` | secret from step 2 |
+   | `digest-pipeline` | `ANTHROPIC_API_KEY`       | Anthropic API key  |
 
    The deploy copies them into runtime secrets and registers the webhook, so there's nothing else to set.
-   `ANTHROPIC_API_KEY` isn't used yet.
+   Without `ANTHROPIC_API_KEY` the pipeline still runs: the match step falls back to a plain threshold instead
+   of asking Haiku, and nothing is extracted. `DAILY_SPEND_CAP_USD` in `apps/pipeline/wrangler.jsonc` (default
+   2) caps Claude spend per UTC day; `ANTHROPIC_BASE_URL` can be added as a var later to route through AI Gateway.
 
 6. Retry the deploys. The ingress log ends with `set-webhook: https://hooks.dd.nipatiitti.fi/telegram`.
 
@@ -64,6 +77,11 @@ secret token. Both skip quietly when the variables aren't set.
 ## Checking it works
 
 - **Polling**: Workers Logs for `digest-pipeline` show a `fetched` line per source as polls come due.
+- **Matching**: a `matched` line per new article with its `storyId` and `how` (`new`, `join`, `copy`, `cve`,
+  `ask-yes`, `ask-no`). `select count(*) from stories` grows; `gate_log` gets an `evidence` row per touched
+  story, and a `story_eval_stub` line appears when one crosses the bar.
+- **Feeds**: `node scripts/smoke-sources.ts --all` fetches every seeded source with the real parser and prints one
+  line each (status, items, newest item age). Node 24, or `--experimental-strip-types` on 22.
 - **Digest**: arrives at 07:00 UTC. To try it sooner, trigger the `digest` Workflow (dashboard → Workflows →
   digest → Trigger, or `npx wrangler workflows trigger digest '{"date":"test-1"}'`). Use a date other than
   today's, because each `date` sends at most once.

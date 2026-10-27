@@ -1,20 +1,27 @@
 # Scaffolding plan
 
-Living version: the "Daily digest: scaffolding plan" doc. This file is the repo copy as of 25 Oct 2026.
+Living version: the "Daily digest: scaffolding plan" doc. This file is the repo copy as of 25 Oct 2026, with the
+27 Oct review ("Daily digest: design review" doc) folded into Decisions and Order of work. AGENTS.md has the
+working rules.
 
 ## Decisions
 
-| Question       | Decision                                                                          |
-| -------------- | --------------------------------------------------------------------------------- |
-| Digest time    | `0 7 * * *` every day (drifts to 09:00 Helsinki in winter)                        |
-| Embeddings     | `@cf/baai/bge-m3`, 1024-d, cosine. No benchmark                                   |
-| Tests          | None                                                                              |
-| Git flow       | Commit straight to `main`, no PRs                                                 |
-| Hostnames      | `dd.nipatiitti.fi` (dashboard, behind Access), `hooks.dd.nipatiitti.fi` (ingress) |
-| Backups        | D1 Time Travel (FTS5 virtual tables block `wrangler d1 export`)                   |
-| Lint/format    | Biome                                                                             |
-| Feed ingestion | Pure polling, no WebSub                                                           |
-| Chat allowlist | `TELEGRAM_CHAT_IDS` var                                                           |
+| Question                                          | Decision                                                                                       |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Digest time                                       | `0 7 * * *` every day (drifts to 09:00 Helsinki in winter)                                     |
+| Embeddings                                        | `@cf/baai/bge-m3`, 1024-d, cosine. No benchmark                                                |
+| Tests                                             | None                                                                                           |
+| Git flow                                          | Commit straight to `main`, no PRs                                                              |
+| Hostnames                                         | `dd.nipatiitti.fi` (dashboard, behind Access), `hooks.dd.nipatiitti.fi` (ingress)              |
+| Backups                                           | D1 Time Travel (FTS5 virtual tables block `wrangler d1 export`)                                |
+| Lint/format                                       | Biome                                                                                          |
+| Feed ingestion                                    | Pure polling, no WebSub                                                                        |
+| Chat allowlist                                    | `TELEGRAM_CHAT_IDS` var                                                                        |
+| Order of work                                     | Embedding-first as planned (27 Oct review proposed a batch digest first; Niilo chose the plan) |
+| Claude access                                     | Direct API first (`ANTHROPIC_API_KEY`); AI Gateway later via `ANTHROPIC_BASE_URL`              |
+| Signal sources                                    | Tier D (HN, Bluesky, Google Trends, Lobsters) disabled until `signals` has an ingestion path   |
+| MSRC                                              | Disabled: 5,000+ CVE items per fetch; Microsoft issues arrive via KEV and news feeds           |
+| Opus edit, Browser Rendering, Kagi recall, Follow | Deferred until a real digest shows the need                                                    |
 
 ## Layout
 
@@ -32,7 +39,7 @@ scripts/        bootstrap.sh (Cloudflare resources), set-webhook, seed
 ```
 
 - Packages are source-only TS (`"exports": { ".": "./src/index.ts" }`), bundled by wrangler/Vite.
-- `core` imports nothing from the workspace; `llm` and `telegram` may import `core`; `db` imports only Drizzle; packages never import apps.
+- `core` imports nothing from the workspace; `telegram` may import `core`; `llm` may import `core` and `db` (spend cap and `llm_calls` logging); `db` imports only Drizzle; packages never import apps.
 - Each Worker's `src/index.ts` only wires `env` into package functions.
 - Every _(calibrate)_ number lives in `core/src/config.ts` with a `CONFIG_VERSION`.
 - Sources live in `packages/db/seed/sources.ts`; the seed script upserts config columns only, never runtime state.
@@ -66,7 +73,9 @@ All apps: same pinned `compatibility_date`, `nodejs_compat`, observability on, `
 - Digest idempotency: the first step inserts into `digests(digest_date)` with `ON CONFLICT DO NOTHING`; a lost claim ends the run (scheduled instances get generated IDs).
 - Queue messages carry IDs only (128 KB cap); Workflow steps return R2 keys, not full text (~1 MiB step result cap).
 - Ingestion is pure polling; no WebSub (brief's `websub_*` columns dropped).
-- `scripts/bootstrap.sh` creates D1, R2, queues, Vectorize index, AI Gateway; `scripts/set-webhook` registers Telegram with the secret token and `allowed_updates: ["message", "callback_query"]`.
+- `scripts/ensure-resources.ts` (run by the pipeline deploy) creates the queues and the Vectorize index with its metadata indexes if missing; `scripts/set-webhook` registers Telegram with the secret token and `allowed_updates: ["message", "callback_query"]`; `scripts/smoke-sources.ts` fetches every seeded feed with the real parser.
+- Failed sources back off: the poll interval doubles per consecutive failure, capped at 24 h.
+- `process-q` runs with concurrency 1 and compares articles within a batch in memory, because Vectorize indexes asynchronously and two concurrent batches about one event would each start a story.
 
 ## Drizzle and D1
 
@@ -89,9 +98,10 @@ Each Worker is a Cloudflare Workers Builds project linked to the repo (repo root
 
 Done when a walking skeleton runs in production: at 07:00 UTC a "Nothing notable today" digest arrives in Telegram and tapping 👍 writes a `feedback` row.
 
-1. Repo foundation (this commit).
-2. Database package: full schema, FTS migration, source seed.
-3. Pipeline skeleton: all bindings incl. Vectorize, scheduler, fetch consumer writing articles, process consumer embedding with bge-m3, StoryEval stub, Digest sending the empty digest, minimal `telegram`, `bootstrap.sh`.
-4. Ingress: grammY webhook, secret check, `update_id` dedupe, callback answers, feedback writes, `set-webhook`.
-5. Dashboard shell: SvelteKit, Access JWT check in `hooks.server.ts`, digest archive. Deploy steps switch on.
-6. Real pipeline stages, then calibration on two weeks of shadow gate logs.
+1. Repo foundation. Done.
+2. Database package: full schema, FTS migration, source seed. Done.
+3. Pipeline skeleton: all bindings incl. Vectorize, scheduler, fetch consumer writing articles, process consumer embedding with bge-m3 and matching articles to stories (brief section 5: wire-copy collapse, cosine bands, Haiku in the ask band, CVE hard key, same-source penalty), evidence gate, StoryEval stub, Digest sending the empty digest, minimal `telegram`. Done 27 Oct; needs the Vectorize index and `process-q` created (DEPLOY.md).
+4. Ingress: grammY webhook, secret check, `update_id` dedupe, callback answers, feedback writes, `set-webhook`. Done.
+5. Dashboard shell: SvelteKit, Access JWT check in `hooks.server.ts`, digest archive. The review suggests doing this after step 6 has stories to show.
+6. Real pipeline stages: StoryEval (full text, Sonnet extraction and rubric, scoring, shadow alert gate), Digest reading stories (candidates, slotting, one message per item, verification badge, links), maintenance cron (`db_stats`, stale sources, story expiry, nightly merge). Then calibration on two weeks of shadow gate logs.
+7. Later: velocity signals, EUVD, HF trending and HTML-diff parsers, CVE enrichment, Kagi recall, Follow, Opus edit.

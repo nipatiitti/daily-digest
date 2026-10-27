@@ -1,9 +1,13 @@
 import { getDb } from "@digest/db"
+import { createLlm } from "@digest/llm"
 import type { DigestParams } from "./digest.ts"
 import { type FetchMessage, fetchSource } from "./fetch.ts"
+import { type ProcessMessage, processArticles } from "./process.ts"
 import { scheduleDueSources } from "./scheduler.ts"
+import type { StoryEvalParams } from "./story-eval.ts"
 
 export { Digest } from "./digest.ts"
+export { StoryEval } from "./story-eval.ts"
 
 const startDigest = async (workflow: Workflow<DigestParams>, scheduledTime: number) => {
   const date = new Date(scheduledTime).toISOString().slice(0, 10)
@@ -12,6 +16,24 @@ const startDigest = async (workflow: Workflow<DigestParams>, scheduledTime: numb
   } catch (e) {
     // The instance ID is per day, so a duplicate cron fire fails here; the DB claim covers the rest.
     console.warn(JSON.stringify({ event: "digest_create_failed", date, error: String(e) }))
+  }
+}
+
+/** Null until ANTHROPIC_API_KEY is set; LLM steps then fall back to thresholds. */
+const llmFor = (env: Env, db: ReturnType<typeof getDb>) =>
+  env.ANTHROPIC_API_KEY
+    ? createLlm({
+        apiKey: env.ANTHROPIC_API_KEY,
+        baseURL: env.ANTHROPIC_BASE_URL,
+        db,
+        dailyCapUsd: Number(env.DAILY_SPEND_CAP_USD) || 2,
+      })
+    : null
+
+/** sendBatch caps at 100 messages. */
+const enqueueArticles = async (queue: Queue<ProcessMessage>, ids: number[]) => {
+  for (let i = 0; i < ids.length; i += 100) {
+    await queue.sendBatch(ids.slice(i, i + 100).map((articleId) => ({ body: { articleId } })))
   }
 }
 
@@ -35,7 +57,8 @@ export default {
       case "fetch-q":
         for (const msg of batch.messages as readonly Message<FetchMessage>[]) {
           try {
-            await fetchSource(db, msg.body.sourceId)
+            const newIds = await fetchSource(db, msg.body.sourceId)
+            await enqueueArticles(env.PROCESS_Q as Queue<ProcessMessage>, newIds)
             msg.ack()
           } catch (e) {
             console.error(JSON.stringify({ event: "fetch_failed", sourceId: msg.body.sourceId, error: String(e) }))
@@ -43,6 +66,23 @@ export default {
           }
         }
         break
+      case "process-q": {
+        const ids = (batch.messages as readonly Message<ProcessMessage>[]).map((m) => m.body.articleId)
+        try {
+          await processArticles(
+            { AI: env.AI, VECTORS: env.VECTORS, STORY_EVAL: env.STORY_EVAL as Workflow<StoryEvalParams> },
+            db,
+            llmFor(env, db),
+            ids,
+          )
+          batch.ackAll()
+        } catch (e) {
+          // Articles already assigned are skipped on the retry, so one failure doesn't redo the batch.
+          console.error(JSON.stringify({ event: "process_failed", count: ids.length, error: String(e) }))
+          batch.retryAll()
+        }
+        break
+      }
       default:
         console.warn(`unknown queue ${batch.queue}`)
         batch.ackAll()

@@ -1,4 +1,6 @@
 export * from "./config.ts"
 export * from "./feed.ts"
 export * from "./filter.ts"
+export * from "./match.ts"
+export * from "./text.ts"
 export * from "./url.ts"
