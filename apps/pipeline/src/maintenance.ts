@@ -7,7 +7,9 @@ import {
   rowCounts,
   staleSources,
   unassignedArticleCount,
+  unassignedRecentArticles,
 } from "@digest/db"
+import type { ProcessMessage } from "./process.ts"
 
 const DAY = 86_400_000
 
