@@ -1,7 +1,8 @@
 import { getDb } from "@digest/db"
-import { createLlm } from "@digest/llm"
 import type { DigestParams } from "./digest.ts"
 import { type FetchMessage, fetchSource } from "./fetch.ts"
+import { llmFor } from "./llm.ts"
+import { runMaintenance } from "./maintenance.ts"
 import { type ProcessMessage, processArticles } from "./process.ts"
 import { scheduleDueSources } from "./scheduler.ts"
 import type { StoryEvalParams } from "./story-eval.ts"
@@ -19,17 +20,6 @@ const startDigest = async (workflow: Workflow<DigestParams>, scheduledTime: numb
   }
 }
 
-/** Null until ANTHROPIC_API_KEY is set; LLM steps then fall back to thresholds. */
-const llmFor = (env: Env, db: ReturnType<typeof getDb>) =>
-  env.ANTHROPIC_API_KEY
-    ? createLlm({
-        apiKey: env.ANTHROPIC_API_KEY,
-        baseURL: env.ANTHROPIC_BASE_URL,
-        db,
-        dailyCapUsd: Number(env.DAILY_SPEND_CAP_USD) || 2,
-      })
-    : null
-
 /** sendBatch caps at 100 messages. */
 const enqueueArticles = async (queue: Queue<ProcessMessage>, ids: number[]) => {
   for (let i = 0; i < ids.length; i += 100) {
@@ -45,6 +35,9 @@ export default {
         break
       case "0 7 * * *":
         await startDigest(env.DIGEST as Workflow<DigestParams>, controller.scheduledTime)
+        break
+      case "30 3 * * *":
+        await runMaintenance(getDb(env.DB), controller.scheduledTime)
         break
       default:
         console.warn(`unknown cron ${controller.cron}`)

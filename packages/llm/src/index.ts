@@ -1,3 +1,5 @@
 export * from "./client.ts"
+export * from "./extract.ts"
 export * from "./match.ts"
 export * from "./models.ts"
+export * from "./novelty.ts"

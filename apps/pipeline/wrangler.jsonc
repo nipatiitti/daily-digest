@@ -10,8 +10,8 @@
   "preview_urls": false,
   "observability": { "enabled": true },
   "triggers": {
-    // scheduler, daily digest (07:00 UTC)
-    "crons": ["* * * * *", "0 7 * * *"]
+    // scheduler, daily digest (07:00 UTC), nightly maintenance
+    "crons": ["* * * * *", "0 7 * * *", "30 3 * * *"]
   },
   "d1_databases": [
     {
@@ -57,7 +57,7 @@
     // Comma-separated Telegram chat IDs that receive the digest (send /start to the bot to get one)
     "TELEGRAM_CHAT_IDS": "-5529066369",
     // Claude spend per UTC day before the pipeline degrades (see packages/llm)
-    "DAILY_SPEND_CAP_USD": "2"
+    "DAILY_SPEND_CAP_USD": "3.33"
   }
   // Secrets (set in the dashboard, never here): TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY
 }

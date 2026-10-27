@@ -1,4 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // URL and URLSearchParams; the code runs in Workers, which implement the same APIs.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"]
+  },
   "include": ["src"]
 }

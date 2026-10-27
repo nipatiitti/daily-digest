@@ -74,7 +74,10 @@ export const createLlm = (o: LlmOptions) => {
     return parsed
   }
 
-  return { structured }
+  /** Today's spend so far in USD, for the degradation rules in the brief. */
+  const spentToday = () => spendSince(o.db, startOfUtcDay(Date.now()))
+
+  return { structured, spentToday, dailyCapUsd: o.dailyCapUsd }
 }
 
 export type Llm = ReturnType<typeof createLlm>

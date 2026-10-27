@@ -43,3 +43,78 @@ export const EVIDENCE = {
   /** One Tier A source or one Finnish-language source also clears the bar. */
   authoritativeCount: 1,
 }
+
+/** Story evaluation (brief section 6). */
+export const EVAL = {
+  /** Origin articles whose full text is fetched for extraction, authoritative first. */
+  fulltextArticles: 2,
+  fulltextMaxChars: 12_000,
+  fetchTimeoutMs: 15_000,
+  /** Above this share of the daily cap, stories without a Tier A source are not extracted. */
+  spendSoftCap: 0.8,
+  /** Tier A stories may spend up to this multiple of the cap (the alert path stays alive). */
+  tierACapMultiplier: 1.25,
+  /** Stored facts a new fact is labelled against. */
+  noveltyContextFacts: 5,
+}
+
+/** Rubric weights (sum 1), caps and the score formula (brief section 6). All (calibrate). */
+export const SCORING = {
+  weights: {
+    severity: 0.25,
+    specificity: 0.2,
+    breadth: 0.2,
+    actionability: 0.15,
+    novelty: 0.1,
+    credibility: 0.1,
+  } as Record<string, number>,
+  caps: { promotional: 74, aggregator: 40, evergreen: 60 },
+  credibilityByTier: { A: 1, B: 0.95, C: 0.8, D: 0.7 } as Record<string, number>,
+  unknownCredibility: 0.7,
+  recencyHalfLifeHours: 18,
+  originBonusMax: 15,
+  /** Bonus per independent origin seen in the last 6 hours, capped. */
+  velocityBonusPerOrigin: 2,
+  velocityBonusMax: 10,
+  /** Applied to digest ranking only: fi_relevance 2 and 1. */
+  nordicBoost: { 2: 8, 1: 4 } as Record<number, number>,
+  /** Score bands; crossing one is a material update. */
+  tierBounds: [45, 60, 75, 90],
+  /** EPSS at or above this counts toward security majorness. */
+  epssMajor: 0.1,
+}
+
+/** Alert gate (brief section 6). Shadow mode for the first two weeks. */
+export const ALERT = {
+  shadow: true,
+  minScore: 90,
+  maxPerDay: 3,
+  cooldownDevelopingHours: 4,
+  cooldownSustainedHours: 24,
+  /** Non-authoritative world stories also need this many independent outlets within the window. */
+  worldVelocityOrigins: 4,
+  worldVelocityWindowMinutes: 30,
+  /** Helsinki quiet hours: send silently unless authoritative and exploited. */
+  quietHours: { start: 23, end: 7 },
+  /** Material update: a new or contradicting fact of a key type with at least this salience. */
+  materialSalience: 2,
+  materialOriginJump: 5,
+}
+
+/** Digest composition (brief section 7). */
+export const DIGEST = {
+  floor: 60,
+  fiFloor: 45,
+  slots: { techSecurity: 4, world: 3, fi: 1 },
+  maxItems: 7,
+  maxPerEntity: 1,
+  maxPerSource: 2,
+  /** Candidates are stories that changed within this window before the run. */
+  windowHours: 30,
+  maxLinks: 3,
+}
+
+export const MAINTENANCE = {
+  closeStoryAfterDays: 7,
+  dbWarnBytes: [4e9, 8e9],
+}

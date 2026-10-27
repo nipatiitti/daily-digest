@@ -64,8 +64,7 @@ secret token. Both skip quietly when the variables aren't set.
 
    The deploy copies them into runtime secrets and registers the webhook, so there's nothing else to set.
    Without `ANTHROPIC_API_KEY` the pipeline still runs: the match step falls back to a plain threshold instead
-   of asking Haiku, and nothing is extracted. `DAILY_SPEND_CAP_USD` in `apps/pipeline/wrangler.jsonc` (default
-   2) caps Claude spend per UTC day; `ANTHROPIC_BASE_URL` can be added as a var later to route through AI Gateway.
+   of asking Haiku, and nothing is extracted. `DAILY_SPEND_CAP_USD` in `apps/pipeline/wrangler.jsonc` (3.33) caps Claude spend per UTC day; `ANTHROPIC_BASE_URL` can be added as a var later to route through AI Gateway.
 
 6. Retry the deploys. The ingress log ends with `set-webhook: https://hooks.dd.nipatiitti.fi/telegram`.
 

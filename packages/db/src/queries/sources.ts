@@ -67,3 +67,19 @@ export const recordPoll = (db: Db, id: number, now: number, r: PollResult) => {
     })
     .where(eq(sources.id, id))
 }
+
+/** Enabled sources with no new item for longer than their own stale_after_days. */
+export const staleSources = (db: Db, now: number) =>
+  db
+    .select({
+      slug: sources.slug,
+      lastNewItemAt: sources.lastNewItemAt,
+      consecutiveFailures: sources.consecutiveFailures,
+    })
+    .from(sources)
+    .where(
+      and(
+        eq(sources.enabled, true),
+        sql`coalesce(${sources.lastNewItemAt}, 0) < ${now} - ${sources.staleAfterDays} * 86400000`,
+      ),
+    )
