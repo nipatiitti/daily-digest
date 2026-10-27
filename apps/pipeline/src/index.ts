@@ -37,7 +37,7 @@ export default {
         await startDigest(env.DIGEST as Workflow<DigestParams>, controller.scheduledTime)
         break
       case "30 3 * * *":
-        await runMaintenance(getDb(env.DB), controller.scheduledTime)
+        await runMaintenance(getDb(env.DB), env.PROCESS_Q as Queue<ProcessMessage>, controller.scheduledTime)
         break
       default:
         console.warn(`unknown cron ${controller.cron}`)

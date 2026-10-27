@@ -11,9 +11,17 @@ import {
 
 const DAY = 86_400_000
 
-/** Nightly: close quiet stories, record database size and row counts, name stale sources. */
-export const runMaintenance = async (db: Db, now: number) => {
+/** Nightly: close quiet stories, requeue recent unassigned articles, record size and row counts, name stale sources. */
+export const runMaintenance = async (db: Db, processQueue: Queue<ProcessMessage>, now: number) => {
   const closed = await closeQuietStories(db, now - MAINTENANCE.closeStoryAfterDays * DAY)
+  const requeue = await unassignedRecentArticles(
+    db,
+    now - MAINTENANCE.requeueWindowDays * DAY,
+    MAINTENANCE.requeueLimit,
+  )
+  for (let i = 0; i < requeue.length; i += 100) {
+    await processQueue.sendBatch(requeue.slice(i, i + 100).map(({ id }) => ({ body: { articleId: id } })))
+  }
   const [sizeBytes, rows, unassigned, stale] = await Promise.all([
     databaseSize(db),
     rowCounts(db),
@@ -26,6 +34,7 @@ export const runMaintenance = async (db: Db, now: number) => {
     JSON.stringify({
       event: "maintenance",
       closedStories: closed.length,
+      requeuedArticles: requeue.length,
       sizeBytes,
       sizeWarning: warn.length > 0 ? `over ${warn[warn.length - 1]} bytes` : null,
       unassignedArticles: unassigned,

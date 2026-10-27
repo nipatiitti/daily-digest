@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, isNotNull, like, or, sql } from "drizzle-orm"
+import { and, eq, gte, inArray, isNotNull, isNull, like, or, sql } from "drizzle-orm"
 import type { Db } from "../client.ts"
 import { articles, type Gate, type GateDecision, gateLog, sources, stories } from "../schema/index.ts"
 
@@ -136,3 +136,12 @@ export const logGate = (
   db
     .insert(gateLog)
     .values({ storyId: g.storyId, gate: g.gate, decision: g.decision, reasonsJson: g.reasons, shadow: g.shadow })
+
+/** Recent articles that never reached a story (pre-process-stage rows, dead-lettered batches). */
+export const unassignedRecentArticles = (db: Db, since: number, limit: number) =>
+  db
+    .select({ id: articles.id })
+    .from(articles)
+    .where(and(isNull(articles.storyId), gte(articles.publishedAt, since)))
+    .orderBy(articles.publishedAt)
+    .limit(limit)

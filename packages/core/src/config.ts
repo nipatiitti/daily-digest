@@ -116,5 +116,8 @@ export const DIGEST = {
 
 export const MAINTENANCE = {
   closeStoryAfterDays: 7,
+  /** Unassigned articles this recent are put back on process-q nightly. */
+  requeueWindowDays: 2,
+  requeueLimit: 500,
   dbWarnBytes: [4e9, 8e9],
 }
