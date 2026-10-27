@@ -4,10 +4,10 @@ Each Worker is a Cloudflare Workers Builds project linked to this repo. Every pu
 deploys it, so nothing in this repo needs Cloudflare credentials. The `pipeline` deploy also applies D1
 migrations and upserts the source seed before `wrangler deploy`.
 
-| Worker            | Root directory | Deploy command             | What the deploy does                                                                                                          |
-| ----------------- | -------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `digest-pipeline` | _(empty)_      | `pnpm run deploy:pipeline` | `pnpm check` → D1 migrations → seed upsert → `wrangler deploy` → sync secrets |
-| `digest-ingress`  | _(empty)_      | `pnpm run deploy:ingress`  | `pnpm check` → `wrangler deploy` (`hooks.dd.nipatiitti.fi`) → sync secrets → set the webhook                                  |
+| Worker            | Root directory | Deploy command             | What the deploy does                                                                         |
+| ----------------- | -------------- | -------------------------- | -------------------------------------------------------------------------------------------- |
+| `digest-pipeline` | _(empty)_      | `pnpm run deploy:pipeline` | `pnpm check` → D1 migrations → seed upsert → `wrangler deploy` → sync secrets                |
+| `digest-ingress`  | _(empty)_      | `pnpm run deploy:ingress`  | `pnpm check` → `wrangler deploy` (`hooks.dd.nipatiitti.fi`) → sync secrets → set the webhook |
 
 Build command is empty for both. The root directory is the repo root: the root scripts hand off to the app with
 `pnpm --filter`, so Workers Builds installs the whole workspace from the root lockfile. It takes Node 24 from
