@@ -6,7 +6,7 @@ migrations and upserts the source seed before `wrangler deploy`.
 
 | Worker            | Root directory | Deploy command             | What the deploy does                                                                                                          |
 | ----------------- | -------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `digest-pipeline` | _(empty)_      | `pnpm run deploy:pipeline` | `pnpm check` → D1 migrations → seed upsert → create missing queues and the Vectorize index → `wrangler deploy` → sync secrets |
+| `digest-pipeline` | _(empty)_      | `pnpm run deploy:pipeline` | `pnpm check` → D1 migrations → seed upsert → `wrangler deploy` → sync secrets |
 | `digest-ingress`  | _(empty)_      | `pnpm run deploy:ingress`  | `pnpm check` → `wrangler deploy` (`hooks.dd.nipatiitti.fi`) → sync secrets → set the webhook                                  |
 
 Build command is empty for both. The root directory is the repo root: the root scripts hand off to the app with
@@ -35,11 +35,9 @@ secret token. Both skip quietly when the variables aren't set.
    npx wrangler vectorize create-metadata-index digest-articles --property-name=source_id --type=number
    ```
 
-   The pipeline deploy runs `scripts/ensure-resources.ts`, which tries the queue and Vectorize commands itself
-   and skips the ones that already exist. If the build token lacks Queues or Vectorize permission the deploy
-   log says so and `wrangler deploy` fails on the missing binding; then run the commands above once by hand
-   or give the token those permissions. The metadata indexes must exist before the first vector is inserted.
-   The `digest` and `story-eval` Workflows are created by the first deploy. `nipatiitti.fi` must be a zone on the same account,
+   The deploy never creates resources; `wrangler deploy` fails on a binding whose queue or index is missing.
+   The three metadata indexes must exist before the first vector is inserted. The `digest` and `story-eval`
+   Workflows are created by the first deploy. `nipatiitti.fi` must be a zone on the same account,
    because the ingress deploy attaches `hooks.dd.nipatiitti.fi` as a custom domain.
 
 2. **Telegram bot**: create it with @BotFather and keep the token. Make a webhook secret with

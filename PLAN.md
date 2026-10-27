@@ -73,7 +73,7 @@ All apps: same pinned `compatibility_date`, `nodejs_compat`, observability on, `
 - Digest idempotency: the first step inserts into `digests(digest_date)` with `ON CONFLICT DO NOTHING`; a lost claim ends the run (scheduled instances get generated IDs).
 - Queue messages carry IDs only (128 KB cap); Workflow steps return R2 keys, not full text (~1 MiB step result cap).
 - Ingestion is pure polling; no WebSub (brief's `websub_*` columns dropped).
-- `scripts/ensure-resources.ts` (run by the pipeline deploy) creates the queues and the Vectorize index with its metadata indexes if missing; `scripts/set-webhook` registers Telegram with the secret token and `allowed_updates: ["message", "callback_query"]`; `scripts/smoke-sources.ts` fetches every seeded feed with the real parser.
+- Cloudflare resources are created by hand (DEPLOY.md), never by the deploy; `scripts/set-webhook` registers Telegram with the secret token and `allowed_updates: ["message", "callback_query"]`; `scripts/smoke-sources.ts` fetches every seeded feed with the real parser.
 - Failed sources back off: the poll interval doubles per consecutive failure, capped at 24 h.
 - `process-q` runs with concurrency 1 and compares articles within a batch in memory, because Vectorize indexes asynchronously and two concurrent batches about one event would each start a story.
 

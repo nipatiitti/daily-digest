@@ -49,8 +49,8 @@
   ],
   "ai": { "binding": "AI" },
   "vectorize": [
-    // bge-m3, 1024-d, cosine. Created by scripts/ensure-resources.ts (or DEPLOY.md) with
-    // metadata indexes on published_at, category and source_id before the first insert.
+    // bge-m3, 1024-d, cosine. Created by hand (DEPLOY.md) with metadata indexes on
+    // published_at, category and source_id before the first insert.
     { "binding": "VECTORS", "index_name": "digest-articles" }
   ],
   "vars": {
