@@ -162,18 +162,54 @@ export const parserFor = (kind: string, parser: string | null) => {
   return kind === "rss" || kind === "json" ? parseFeed : null
 }
 
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+  hellip: "…",
+  mdash: "—",
+  ndash: "–",
+  lsquo: "‘",
+  rsquo: "’",
+  ldquo: "“",
+  rdquo: "”",
+  laquo: "«",
+  raquo: "»",
+  euro: "€",
+  copy: "©",
+  trade: "™",
+  auml: "ä",
+  ouml: "ö",
+  Auml: "Ä",
+  Ouml: "Ö",
+  aring: "å",
+  Aring: "Å",
+  uuml: "ü",
+  szlig: "ß",
+  eacute: "é",
+  egrave: "è",
+}
+
+/** Decode one HTML entity; unknown names are left as they are. */
+const decodeEntity = (match: string, body: string) => {
+  if (body[0] === "#") {
+    const code =
+      body[1]?.toLowerCase() === "x" ? Number.parseInt(body.slice(2), 16) : Number.parseInt(body.slice(1), 10)
+    return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match
+  }
+  return NAMED_ENTITIES[body] ?? match
+}
+
 /** Plain-text snippet from an HTML summary. */
 export const toSnippet = (html: string | null, max: number) => {
   if (!html) return null
   const plain = html
     .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
     .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#0?39;/g, "'")
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, decodeEntity)
     .replace(/\s+/g, " ")
     .trim()
   if (!plain) return null

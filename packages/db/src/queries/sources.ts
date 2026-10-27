@@ -42,14 +42,24 @@ export type PollResult = {
   newItems: number
 }
 
-/** Record a fetch outcome and schedule the next poll from the source's interval. */
+/** Failed sources back off by doubling their interval per failure, up to this. */
+const MAX_BACKOFF_MS = 24 * 3_600_000
+
+/**
+ * Record a fetch outcome and schedule the next poll. A success polls again after the
+ * source's interval; a failure doubles the interval per consecutive failure (capped), so a
+ * dead 3-minute feed settles at one request a day instead of 480.
+ */
 export const recordPoll = (db: Db, id: number, now: number, r: PollResult) => {
   const ok = r.status > 0 && r.status < 400
+  const nextPollAt = ok
+    ? sql`${now} + ${sources.pollSeconds} * 1000`
+    : sql`${now} + min(${sources.pollSeconds} * 1000 * (1 << min(${sources.consecutiveFailures} + 1, 20)), ${MAX_BACKOFF_MS})`
   return db
     .update(sources)
     .set({
       lastStatus: r.status,
-      nextPollAt: sql`${now} + ${sources.pollSeconds} * 1000`,
+      nextPollAt,
       consecutiveFailures: ok ? 0 : sql`${sources.consecutiveFailures} + 1`,
       ...(ok && r.etag !== undefined ? { etag: r.etag } : {}),
       ...(ok && r.lastModified !== undefined ? { lastModified: r.lastModified } : {}),

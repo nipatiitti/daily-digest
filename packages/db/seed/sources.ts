@@ -195,6 +195,9 @@ export const SOURCES: SourceSeed[] = [
     authoritative: true,
     pollSeconds: 5 * MIN,
     staleAfterDays: 30,
+    // Every CVE Microsoft has published (5,000+ items per fetch, hundreds each Patch Tuesday):
+    // a firehose like linux-cve-announce. Microsoft issues that matter arrive via KEV and the news feeds.
+    enabled: false,
   },
   {
     slug: "cisco-psirt",
@@ -512,7 +515,8 @@ export const SOURCES: SourceSeed[] = [
     enabled: false,
   },
 
-  // Velocity signals: boost only, never origins
+  // Velocity signals: boost only, never origins. Disabled until the signals table has an
+  // ingestion path; as sources they would land trending topics in `articles` as if they were news.
   {
     slug: "hn-front-page",
     name: "Hacker News front page",
@@ -523,6 +527,7 @@ export const SOURCES: SourceSeed[] = [
     category: "tech",
     pollSeconds: 10 * MIN,
     staleAfterDays: 1,
+    enabled: false,
   },
   {
     slug: "bsky-trending",
@@ -534,6 +539,7 @@ export const SOURCES: SourceSeed[] = [
     category: "world",
     pollSeconds: 15 * MIN,
     staleAfterDays: 1,
+    enabled: false,
   },
   {
     slug: "gtrends-fi",
@@ -543,6 +549,7 @@ export const SOURCES: SourceSeed[] = [
     category: "fi",
     pollSeconds: 30 * MIN,
     staleAfterDays: 1,
+    enabled: false,
   },
   {
     slug: "lobsters",

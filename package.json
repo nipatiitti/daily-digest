@@ -10,8 +10,8 @@
     "check": "biome check . && pnpm -r --parallel typecheck",
     "format": "biome check --write .",
     "typecheck": "pnpm -r --parallel typecheck",
-    "deploy:pipeline": "pnpm --filter @digest/pipeline run deploy",
-    "deploy:ingress": "pnpm --filter @digest/ingress run deploy"
+    "deploy:pipeline": "pnpm check && pnpm --filter @digest/pipeline run deploy",
+    "deploy:ingress": "pnpm check && pnpm --filter @digest/ingress run deploy"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.3",
