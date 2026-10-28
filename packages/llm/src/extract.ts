@@ -21,7 +21,9 @@ Rules:
   actionability (for world stories, potential for further consequence): 0 nothing to do, 2 worth checking, 4 patch or act today.
   novelty: 0 old news repeated, 2 a new development of a known story, 4 wholly new.
   credibility: 0 a single unnamed claim, 2 reputable press, 4 vendor or CERT confirmation.
-- headline under 90 characters. what_happened one or two sentences. why_matters one sentence.`
+- headline: at most 80 characters, a plain statement of the event, no colon-led labels.
+- what_happened: exactly one sentence of at most 25 words with the single most important new fact. The reader sees only the headline and this sentence, so do not repeat the headline in it.
+- why_matters: one short sentence, kept for the record, not shown to the reader.`
 
 export type ExtractArticle = {
   id: number

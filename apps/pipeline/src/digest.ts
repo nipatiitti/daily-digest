@@ -1,5 +1,5 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers"
-import { DIGEST, fillSlots } from "@digest/core"
+import { DIGEST, fillSlots, MATCH, titleJaccard } from "@digest/core"
 import {
   activeFactIds,
   changedStories,
@@ -9,6 +9,7 @@ import {
   getStory,
   latestDeliveries,
   mainSources,
+  mergeStories,
   previousDigestSentAt,
   recordDelivery,
   type StoryArticle,
@@ -16,6 +17,7 @@ import {
   storyArticles,
   updateGatePassedSince,
 } from "@digest/db"
+import { type Llm, LlmRefusal, SpendCapError, sameStory } from "@digest/llm"
 import {
   type DigestItem,
   feedbackKeyboard,
@@ -25,6 +27,7 @@ import {
   renderEmptyDigest,
 } from "@digest/telegram"
 import { Api } from "grammy"
+import { llmFor } from "./llm.ts"
 
 export type DigestParams = {
   /** YYYY-MM-DD (UTC); the idempotency key. */
@@ -32,6 +35,16 @@ export type DigestParams = {
 }
 
 type Selected = { storyId: number; isUpdate: boolean; score: number }
+
+type Candidate = {
+  storyId: number
+  topic: "security" | "tech" | "world"
+  score: number
+  fiRelevance: number
+  primaryEntity: string | null
+  mainSourceId: number
+  isUpdate: boolean
+}
 
 const SEND = { retries: { limit: 5, delay: "30 seconds", backoff: "exponential" }, timeout: "1 minute" } as const
 const HOUR = 3_600_000
@@ -59,6 +72,61 @@ const pickLinks = (list: StoryArticle[]) => {
     .map((a) => ({ url: a.canonicalUrl, label: a.sourceName }))
 }
 
+/** Two stories look like one event when their titles overlap heavily or Haiku says so. */
+const sameEventStories = async (db: ReturnType<typeof getDb>, llm: Llm | null, a: number, b: number) => {
+  const [sa, sb] = await Promise.all([getStory(db, a), getStory(db, b)])
+  if (!sa || !sb) return false
+  if (titleJaccard(sa.title, sb.title) >= MATCH.copyTitleJaccard) return true
+  if (!llm) return false
+  const [la, lb] = await Promise.all([storyArticles(db, a), storyArticles(db, b)])
+  try {
+    return await sameStory(
+      llm,
+      { title: sa.title, articleTitles: la.slice(0, 5).map((x) => x.title) },
+      { title: sb.title, articleTitles: lb.slice(0, 5).map((x) => x.title) },
+      a,
+    )
+  } catch (e) {
+    if (e instanceof SpendCapError || e instanceof LlmRefusal) {
+      log("digest_dedupe_skipped", { a, b, error: String(e) })
+      return false
+    }
+    throw e
+  }
+}
+
+/**
+ * Same-event stories that the matcher kept apart (typically one in Finnish, one in English) are
+ * merged here before slotting: the lower-scored story folds into the higher one. Only the top
+ * candidates within one topic group are compared, so the Haiku cost stays at a few cents.
+ */
+const dedupeCandidates = async (
+  db: ReturnType<typeof getDb>,
+  llm: Llm | null,
+  candidates: Candidate[],
+  now: number,
+) => {
+  const top = [...candidates].sort((a, b) => b.score - a.score).slice(0, DIGEST.dedupeTop)
+  const rest = candidates.filter((c) => !top.includes(c))
+  const merged = new Set<number>()
+  for (let i = 0; i < top.length; i++) {
+    const keep = top[i]
+    if (!keep || merged.has(keep.storyId)) continue
+    for (let j = i + 1; j < top.length; j++) {
+      const other = top[j]
+      if (!other || merged.has(other.storyId)) continue
+      if ((keep.topic === "world") !== (other.topic === "world")) continue
+      if (!(await sameEventStories(db, llm, keep.storyId, other.storyId))) continue
+      await mergeStories(db, other.storyId, keep.storyId, now)
+      merged.add(other.storyId)
+      keep.fiRelevance = Math.max(keep.fiRelevance, other.fiRelevance)
+      keep.isUpdate = keep.isUpdate || other.isUpdate
+      log("digest_merged", { from: other.storyId, into: keep.storyId })
+    }
+  }
+  return [...top.filter((c) => !merged.has(c.storyId)), ...rest]
+}
+
 /**
  * Daily digest: candidates are scored stories that changed since the previous digest and were
  * not delivered, or were delivered and have since passed the update gate. Slots are filled in
@@ -68,6 +136,7 @@ export class Digest extends WorkflowEntrypoint<Env, DigestParams> {
   override async run(event: WorkflowEvent<DigestParams>, step: WorkflowStep) {
     const { date } = event.payload
     const db = getDb(this.env.DB)
+    const llm = llmFor(this.env, db)
 
     const claimed = await step.do("claim", () => claimDigest(db, date))
     if (!claimed) return { skipped: "already claimed" }
@@ -78,7 +147,7 @@ export class Digest extends WorkflowEntrypoint<Env, DigestParams> {
       const changed = await changedStories(db, since)
       const ids = changed.map((s) => s.id)
       const [delivered, sources] = await Promise.all([latestDeliveries(db, ids), mainSources(db, ids)])
-      const candidates = []
+      const candidates: Candidate[] = []
       for (const s of changed) {
         if (s.score === null || s.category === "fi") continue
         const d = delivered.get(s.id)
@@ -97,8 +166,14 @@ export class Digest extends WorkflowEntrypoint<Env, DigestParams> {
           isUpdate,
         })
       }
-      const picked = fillSlots(candidates).map((c) => ({ storyId: c.storyId, isUpdate: c.isUpdate, score: c.score }))
-      log("digest_selected", { date, candidates: candidates.length, picked: picked.map((p) => p.storyId) })
+      const deduped = await dedupeCandidates(db, llm, candidates, now)
+      const picked = fillSlots(deduped).map((c) => ({ storyId: c.storyId, isUpdate: c.isUpdate, score: c.score }))
+      log("digest_selected", {
+        date,
+        candidates: candidates.length,
+        merged: candidates.length - deduped.length,
+        picked: picked.map((p) => p.storyId),
+      })
       return picked
     })
 
@@ -142,9 +217,7 @@ export class Digest extends WorkflowEntrypoint<Env, DigestParams> {
             fiRelevance: story.fiRelevance,
             headline: story.title,
             summary: story.summary ?? "",
-            whyMatters: story.whyMatters ?? "",
             origins: story.independentOrigins,
-            authoritative: [...new Set(list.filter((a) => a.authoritative).map((a) => a.sourceName))],
             links: pickLinks(list),
             isUpdate: s.isUpdate,
           }

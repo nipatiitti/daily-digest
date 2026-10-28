@@ -14,8 +14,8 @@ export const FACT_TYPE_VALUES = [
 
 /** Sonnet's output for one story. Counts are computed in code and are not in here on purpose. */
 export const Extraction = z.object({
-  headline: z.string().describe("Neutral headline, under 90 characters, English"),
-  what_happened: z.string().describe("One or two sentences"),
+  headline: z.string().describe("Neutral headline, at most 80 characters, English"),
+  what_happened: z.string().describe("Exactly one sentence, at most 25 words, not repeating the headline"),
   why_matters: z.string().describe("One sentence on why a security- and tech-minded reader in Finland should care"),
   topic: z.enum(TOPICS),
   primary_entity: z.string().nullable().describe("The one organisation, product or place the story is about"),

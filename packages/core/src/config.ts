@@ -27,7 +27,8 @@ export const MATCH = {
   /** Join the best story automatically at or above this. */
   joinCosine: 0.85,
   /** Start a new story below this; in between, ask Haiku "same real-world event?". */
-  newStoryCosine: 0.75,
+  /** Lowered from 0.75 so cross-language reports of one event reach the Haiku ask instead of a new story. */
+  newStoryCosine: 0.65,
   /** Used in the ask band when no LLM key is configured. */
   fallbackCosine: 0.8,
   topK: 20,
@@ -112,6 +113,8 @@ export const DIGEST = {
   /** Candidates are stories that changed within this window before the run. */
   windowHours: 30,
   maxLinks: 3,
+  /** Before slotting, the top candidates are checked pairwise for the same event and merged. */
+  dedupeTop: 14,
 }
 
 export const MAINTENANCE = {

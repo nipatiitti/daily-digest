@@ -12,7 +12,7 @@ const HELSINKI_DATE = new Intl.DateTimeFormat("en-GB", {
 const heading = (digestDate: string) => {
   const day = new Date(`${digestDate}T12:00:00Z`)
   const label = Number.isNaN(day.getTime()) ? digestDate : HELSINKI_DATE.format(day)
-  return `<b>Daily digest · ${escapeHtml(label)}</b>`
+  return `<b>Daily digest for ${escapeHtml(label)}</b>`
 }
 
 export const renderEmptyDigest = (digestDate: string) => `${heading(digestDate)}\n\nNothing notable today.`
@@ -27,34 +27,37 @@ export type DigestItem = {
   fiRelevance: number
   headline: string
   summary: string
-  whyMatters: string
-  /** Independent origins and the authoritative source names, rendered by code from the database. */
+  /** Independent origins, counted by code from the database. */
   origins: number
-  authoritative: string[]
   links: ItemLink[]
   isUpdate: boolean
 }
 
 const TAG: Record<DigestItem["topic"], string> = { security: "Security", tech: "Tech", world: "World", fi: "Finland" }
 
-const badge = (i: DigestItem) => {
-  const parts = [`${i.origins} ${i.origins === 1 ? "source" : "sources"}`, ...i.authoritative.slice(0, 2)]
-  return parts.map(escapeHtml).join(" · ")
-}
-
 const clean = (s: string) => escapeHtml(sanitizeUserText(s))
 
-/** One Telegram message per item: tag, headline, summary, why it matters, badge, links. */
+/** Trim to the first sentence so a long extraction never bloats the digest. */
+const firstSentence = (s: string) => {
+  const m = s.trim().match(/^[^.!?]*[.!?](?=\s|$)/)
+  return m ? m[0] : s.trim()
+}
+
+/** Linked source names separated by commas, then "and N more" for the origins without a link. */
+const sourcesLine = (i: DigestItem) => {
+  const links = i.links.map((l) => `<a href="${escapeHtml(l.url)}">${escapeHtml(l.label)}</a>`)
+  const more = i.origins - i.links.length
+  if (links.length === 0) return `${i.origins} ${i.origins === 1 ? "source" : "sources"}`
+  if (more > 0) links.push(`and ${more} more`)
+  return links.join(", ")
+}
+
+/** One Telegram message per item: tag and headline, one sentence, sources. */
 export const renderDigestItem = (i: DigestItem) => {
   const tag = i.fiRelevance === 2 && i.topic !== "security" ? "Finland" : TAG[i.topic]
-  const lines = [
-    `<b>${i.isUpdate ? "Update: " : ""}[${tag}] ${clean(i.headline)}</b>`,
-    clean(i.summary),
-    `<i>Why it matters:</i> ${clean(i.whyMatters)}`,
-    badge(i),
-  ]
-  if (i.links.length > 0) {
-    lines.push(i.links.map((l) => `<a href="${escapeHtml(l.url)}">${escapeHtml(l.label)}</a>`).join(" · "))
-  }
+  const lines = [`<b>${i.isUpdate ? "Update: " : ""}${tag}: ${clean(i.headline)}</b>`]
+  const summary = firstSentence(sanitizeUserText(i.summary))
+  if (summary) lines.push(escapeHtml(summary))
+  lines.push(sourcesLine(i))
   return lines.join("\n")
 }

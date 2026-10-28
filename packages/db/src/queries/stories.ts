@@ -11,6 +11,7 @@ import {
   storyVulns,
   vulns,
 } from "../schema/index.ts"
+import { refreshStoryCounters } from "./process.ts"
 
 export const getStory = async (db: Db, id: number) => {
   const [row] = await db.select().from(stories).where(eq(stories.id, id))
@@ -200,4 +201,23 @@ export const rowCounts = async (db: Db) => {
 export const unassignedArticleCount = async (db: Db) => {
   const [row] = await db.select({ n: sql<number>`count(*)` }).from(articles).where(isNull(articles.storyId))
   return row?.n ?? 0
+}
+
+/**
+ * Fold one story into another: articles and CVE links move, the merged story is closed with a
+ * pointer, and the target's counters are recomputed. The target's extraction hash is cleared so
+ * the next process pass re-evaluates it with the combined evidence.
+ */
+export const mergeStories = async (db: Db, fromId: number, intoId: number, now: number) => {
+  if (fromId === intoId) return
+  const links = await db.select({ cveId: storyVulns.cveId }).from(storyVulns).where(eq(storyVulns.storyId, fromId))
+  await db.update(articles).set({ storyId: intoId }).where(eq(articles.storyId, fromId))
+  await linkStoryVulns(
+    db,
+    intoId,
+    links.map((l) => l.cveId),
+  )
+  await db.update(stories).set({ status: "merged", mergedInto: intoId }).where(eq(stories.id, fromId))
+  await db.update(stories).set({ extractionHash: null }).where(eq(stories.id, intoId))
+  await refreshStoryCounters(db, intoId, now)
 }
