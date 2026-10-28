@@ -106,7 +106,8 @@ export const ALERT = {
 export const DIGEST = {
   floor: 60,
   fiFloor: 45,
-  slots: { techSecurity: 4, world: 3, fi: 1 },
+  /** Security and tech share one group. Finland means fi_nordic_eu_relevance 2, any topic. */
+  slots: { techSecurity: 3, world: 2, fi: 2 },
   maxItems: 7,
   maxPerEntity: 1,
   maxPerSource: 2,

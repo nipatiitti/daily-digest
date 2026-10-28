@@ -12,7 +12,8 @@ export type SlotCandidate = {
 }
 
 /**
- * Greedy fill within the caps: up to 4 tech/security, 3 world, and one Finnish item with a lower floor.
+ * Greedy fill within the caps: Finnish stories (relevance 2) take the Finland slots first with the
+ * lower floor, and overflow into their topic group; then 3 tech/security and 2 world.
  * At most one story per primary entity and two per source. Never pads.
  */
 export const fillSlots = <T extends SlotCandidate>(candidates: T[]): T[] => {
@@ -38,19 +39,14 @@ export const fillSlots = <T extends SlotCandidate>(candidates: T[]): T[] => {
 
   for (const c of ranked) {
     if (picked.length >= DIGEST.maxItems) break
-    if (c.score >= DIGEST.floor) {
-      if (c.topic === "world" && world < DIGEST.slots.world) {
-        if (admit(c)) world++
-        continue
-      }
-      if (c.topic !== "world" && techSecurity < DIGEST.slots.techSecurity) {
-        if (admit(c)) techSecurity++
-        continue
-      }
-    }
     if (c.fiRelevance === 2 && c.score >= DIGEST.fiFloor && fi < DIGEST.slots.fi) {
       if (admit(c)) fi++
+      continue
     }
+    if (c.score < DIGEST.floor) continue
+    if (c.topic === "world") {
+      if (world < DIGEST.slots.world && admit(c)) world++
+    } else if (techSecurity < DIGEST.slots.techSecurity && admit(c)) techSecurity++
   }
   return picked
 }
