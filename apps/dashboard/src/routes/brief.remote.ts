@@ -249,14 +249,14 @@ export const opsStrip = query(async () => {
   ])
   const cap = Number(env.DAILY_SPEND_CAP_USD)
   return [
-    { label: "Evaluations, 24h", value: fmtInt(evals?.n ?? 0), href: "/data/llm_calls" },
-    { label: "Would alert, 24h", value: fmtInt(ops.wouldAlert), href: "/data/gate_log" },
-    { label: "Stale sources", value: fmtInt(stale.length), href: "/ops" },
-    { label: "Spend today", value: `${spend.toFixed(2)} of ${cap.toFixed(2)} USD`, href: "/ops" },
+    { label: "Evaluations, 24h", value: fmtInt(evals?.n ?? 0), href: "/ops#evals" },
+    { label: "Would alert, 24h", value: fmtInt(ops.wouldAlert), href: "/ops?gate=alert&decision=pass#gates" },
+    { label: "Stale sources", value: fmtInt(stale.length), href: "/sources" },
+    { label: "Spend today", value: `${spend.toFixed(2)} of ${cap.toFixed(2)} USD`, href: "/ops#spend" },
     {
       label: "Database",
       value: ops.dbBytes === null ? "Not measured" : `${(ops.dbBytes / 1e9).toFixed(2)} GB`,
-      href: "/data/db_stats",
+      href: "/ops#database",
     },
   ]
 })

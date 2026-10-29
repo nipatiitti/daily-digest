@@ -33,7 +33,10 @@ import {
   facts,
   feedback,
   follows,
+  type Gate,
+  type GateDecision,
   gateLog,
+  hourlyRuns,
   llmCalls,
   matchLog,
   type RollupKind,
@@ -808,4 +811,114 @@ export const sourceList = async (db: Db, from: number, to: number) => {
       .groupBy(rollups.key, rollupDay),
   ])
   return { rows, days }
+}
+
+/** UTC day start of a unix ms column; the literal keeps it integer division. */
+const utcDay = (at: Column) => sql<number>`(${at} / 86400000) * 86400000`
+
+/**
+ * Claude spend since `from`: USD and calls per UTC day and purpose, each day's dearest first, and per purpose and
+ * model, dearest first.
+ */
+export const spendByDay = async (db: Db, from: number) => {
+  const day = utcDay(llmCalls.at)
+  const usd = sql<number>`sum(${llmCalls.estCostUsd})`
+  const [days, models] = await db.batch([
+    db
+      .select({ day, purpose: llmCalls.purpose, usd, calls: count() })
+      .from(llmCalls)
+      .where(gte(llmCalls.at, from))
+      .groupBy(day, llmCalls.purpose)
+      .orderBy(day, desc(usd)),
+    db
+      .select({ purpose: llmCalls.purpose, model: llmCalls.model, usd, calls: count() })
+      .from(llmCalls)
+      .where(gte(llmCalls.at, from))
+      .groupBy(llmCalls.purpose, llmCalls.model)
+      .orderBy(desc(usd)),
+  ])
+  return { days, models }
+}
+
+/** Distinct stories StoryEval extracted per UTC day since `from`; empty days are missing. */
+export const evaluatedPerDay = (db: Db, from: number) => {
+  const day = utcDay(llmCalls.at)
+  return db
+    .select({ day, stories: sql<number>`count(distinct ${llmCalls.storyId})` })
+    .from(llmCalls)
+    .where(and(eq(llmCalls.purpose, "extraction"), gte(llmCalls.at, from)))
+    .groupBy(day)
+}
+
+export type GateLogFilter = { gate?: Gate; decision?: GateDecision; shadow?: boolean; from?: number; to?: number }
+
+/**
+ * A page of gate decisions with their story titles, newest first by ID (IDs rise with `at`), after the ID `after`.
+ * `next` is the ID to pass as `after` for the following page, null on the last one.
+ */
+export const gateLogPage = async (db: Db, f: GateLogFilter & { after?: number; limit: number }) => {
+  const rows = await db
+    .select({
+      id: gateLog.id,
+      storyId: gateLog.storyId,
+      title: stories.title,
+      gate: gateLog.gate,
+      decision: gateLog.decision,
+      reasons: gateLog.reasonsJson,
+      shadow: gateLog.shadow,
+      at: gateLog.at,
+    })
+    .from(gateLog)
+    .innerJoin(stories, eq(stories.id, gateLog.storyId))
+    .where(
+      and(
+        f.gate && eq(gateLog.gate, f.gate),
+        f.decision && eq(gateLog.decision, f.decision),
+        f.shadow === undefined ? undefined : eq(gateLog.shadow, f.shadow),
+        f.from === undefined ? undefined : gte(gateLog.at, f.from),
+        f.to === undefined ? undefined : lt(gateLog.at, f.to),
+        f.after === undefined ? undefined : lt(gateLog.id, f.after),
+      ),
+    )
+    .orderBy(desc(gateLog.id))
+    .limit(f.limit + 1)
+  return { rows: rows.slice(0, f.limit), next: rows.length > f.limit ? (rows[f.limit - 1]?.id ?? null) : null }
+}
+
+/** The newest `limit` daily database measurements, newest first. */
+export const dbSizes = (db: Db, limit: number) => db.select().from(dbStats).orderBy(desc(dbStats.day)).limit(limit)
+
+/**
+ * Story deliveries and their votes per score band, lowest first. The band is how many of `bounds` the score at send
+ * reaches (the story's current score when the delivery kept none), as core's scoreTier counts; null when neither.
+ */
+export const calibrationBands = (db: Db, bounds: number[]) => {
+  const score = sql`coalesce(${deliveries.scoreAtSend}, ${stories.score})`
+  const reached = sql.join([sql`0`, ...bounds.map((b) => sql`(${score} >= ${b})`)], sql` + `)
+  const band = sql<number | null>`case when ${score} is null then null else ${reached} end`
+  return db
+    .select({
+      band,
+      stories: sql<number>`count(distinct ${deliveries.storyId})`,
+      up: sql<number>`coalesce(sum(${feedback.vote} = 'up'), 0)`,
+      down: sql<number>`coalesce(sum(${feedback.vote} = 'down'), 0)`,
+    })
+    .from(deliveries)
+    .innerJoin(stories, eq(stories.id, deliveries.storyId))
+    .leftJoin(feedback, eq(feedback.deliveryId, deliveries.id))
+    .groupBy(band)
+    .orderBy(band)
+}
+
+/** Every hourly step's last run, and the newest rollup write per kind among buckets since `since`. */
+export const loopHealth = async (db: Db, since: number) => {
+  const [runs, kinds] = await db.batch([
+    db.select().from(hourlyRuns).orderBy(hourlyRuns.step),
+    db
+      .select({ kind: rollups.kind, updatedAt: sql<number>`max(${rollups.updatedAt})` })
+      .from(rollups)
+      .where(gte(rollups.bucket, since))
+      .groupBy(rollups.kind),
+  ])
+  return { runs, rollups: kinds }
 }

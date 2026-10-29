@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 15
+export const CONFIG_VERSION = 16
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -258,6 +258,8 @@ export const DASHBOARD = {
   /** Search hits the series picker lists, and how long it waits after a keystroke before searching. */
   seriesPickerHits: 8,
   searchDebounceMs: 200,
+  /** An hourly step or rollup kind older than this shows stale on the ops page. */
+  loopStaleHours: 2,
   /** Rows in one CSV download from the table browser. */
   exportMaxRows: 10_000,
   /** Rows per page in the table browser. */
