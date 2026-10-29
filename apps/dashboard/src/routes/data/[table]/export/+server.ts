@@ -5,9 +5,13 @@ import { db } from "#lib/server/db.ts"
 import { browseInput } from "../../browse.ts"
 import type { RequestHandler } from "./$types"
 
-/** RFC 4180: a field with a comma, quote or line break is quoted, its quotes doubled. */
+/**
+ * RFC 4180: a field with a comma, quote or line break is quoted, its quotes doubled. Text a spreadsheet would read
+ * as a formula gets a leading quote; numbers are left as they are.
+ */
 const field = (v: unknown) => {
-  const s = v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v)
+  const raw = v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v)
+  const s = typeof v !== "number" && /^[=+\-@]/.test(raw) ? `'${raw}` : raw
   return /[",\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s
 }
 const line = (values: unknown[]) => `${values.map(field).join(",")}\r\n`

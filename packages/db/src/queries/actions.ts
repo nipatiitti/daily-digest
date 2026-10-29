@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 import { type Db, runBatch } from "../client.ts"
 import {
   actions,
@@ -42,6 +42,28 @@ const articleRow = async (db: Db, id: number) => {
   return row
 }
 
+/**
+ * The audit row for an article leaving story `from`, then the close of `from` when that left it active and empty.
+ * Both go in the batch after the move: `closedFrom` is evaluated in SQL just before the close, so it says what the
+ * close did.
+ */
+const leaveStory = (db: Db, action: typeof actions.$inferInsert, from: number | null) => {
+  if (from === null) return [recordAction(db, action)]
+  const emptied = sql`exists (select 1 from stories where id = ${from} and status = 'active')
+    and not exists (select 1 from articles where story_id = ${from})`
+  const detail = JSON.stringify(action.detailJson ?? {})
+  return [
+    db.insert(actions).values({
+      ...action,
+      detailJson: sql`json_set(${detail}, '$.closedFrom', json(iif(${emptied}, 'true', 'false')))`,
+    }),
+    db
+      .update(stories)
+      .set({ status: "closed" })
+      .where(and(eq(stories.id, from), emptied)),
+  ]
+}
+
 export const closeStory = async (db: Db, id: number, by: string) => {
   const story = await liveStory(db, id)
   await runBatch(db, [
@@ -56,63 +78,98 @@ export const closeStory = async (db: Db, id: number, by: string) => {
   ])
 }
 
-/** mergeStories runs its own statements, so the audit row follows them instead of sharing their batch. */
-export const mergeStory = async (db: Db, fromId: number, intoId: number, by: string, now: number) => {
+/**
+ * mergeStories runs its own statements, so the audit row goes first and keeps what the merge cannot be undone
+ * without: the articles that moved, the source's status and the target's extraction hash.
+ */
+export const mergeStory = async (
+  db: Db,
+  fromId: number,
+  intoId: number,
+  by: string,
+  now: number,
+  opts?: { velocityWindowMinutes: number },
+) => {
   if (fromId === intoId) throw new Error("A story cannot be merged into itself")
-  await Promise.all([liveStory(db, fromId), liveStory(db, intoId)])
-  await mergeStories(db, fromId, intoId, now)
+  const [from, into, moved] = await Promise.all([
+    liveStory(db, fromId),
+    liveStory(db, intoId),
+    db.select({ id: articles.id }).from(articles).where(eq(articles.storyId, fromId)),
+  ])
   await recordAction(db, {
     kind: "merge",
     subjectKind: "story",
     subjectId: String(fromId),
-    detailJson: { into: intoId },
+    detailJson: {
+      into: intoId,
+      articleIds: moved.map((a) => a.id),
+      fromStatus: from.status,
+      intoHash: into.extractionHash,
+    },
     by,
   })
+  await mergeStories(db, fromId, intoId, now, opts)
 }
 
 export const followStory = async (db: Db, id: number, by: string, expiresAt: number) => {
-  await liveStory(db, id)
+  const [, [previous]] = await Promise.all([
+    liveStory(db, id),
+    db.select().from(follows).where(eq(follows.storyId, id)),
+  ])
   await runBatch(db, [
     db
       .insert(follows)
       .values({ storyId: id, expiresAt })
       .onConflictDoUpdate({ target: follows.storyId, set: { expiresAt, active: true } }),
-    recordAction(db, { kind: "follow", subjectKind: "story", subjectId: String(id), detailJson: { expiresAt }, by }),
+    recordAction(db, {
+      kind: "follow",
+      subjectKind: "story",
+      subjectId: String(id),
+      detailJson: { expiresAt, previous: previous ?? null },
+      by,
+    }),
   ])
 }
 
 /** Named apart from stories.ts's `setFactStatus`, the bare statement it reuses. */
-export const changeFactStatus = async (db: Db, factId: number, status: FactStatus, by: string) => {
-  const [fact] = await db
-    .select({ storyId: facts.storyId, status: facts.status })
-    .from(facts)
-    .where(eq(facts.id, factId))
-  if (!fact) throw new Error(`Fact ${factId} does not exist`)
+export const changeFactStatus = async (db: Db, factId: number, storyId: number, status: FactStatus, by: string) => {
+  const [[fact]] = await Promise.all([
+    db
+      .select({ status: facts.status })
+      .from(facts)
+      .where(and(eq(facts.id, factId), eq(facts.storyId, storyId))),
+    liveStory(db, storyId),
+  ])
+  if (!fact) throw new Error(`Story ${storyId} has no fact ${factId}`)
   await runBatch(db, [
     setFactStatus(db, factId, status),
     recordAction(db, {
       kind: "fact_status",
       subjectKind: "fact",
       subjectId: String(factId),
-      detailJson: { storyId: fact.storyId, from: fact.status, to: status },
+      detailJson: { storyId, from: fact.status, to: status },
       by,
     }),
   ])
 }
 
-/** Returns the story the article left, so the caller can refresh counters on it and on the target. */
+/** Closes the story the article left if it is now empty. Returns that story, so the caller can refresh counters. */
 export const moveArticle = async (db: Db, articleId: number, intoStoryId: number, by: string) => {
   const [article] = await Promise.all([articleRow(db, articleId), liveStory(db, intoStoryId)])
   if (article.storyId === intoStoryId) throw new Error(`Article ${articleId} is already in story ${intoStoryId}`)
   await runBatch(db, [
     db.update(articles).set({ storyId: intoStoryId }).where(eq(articles.id, articleId)),
-    recordAction(db, {
-      kind: "move_article",
-      subjectKind: "article",
-      subjectId: String(articleId),
-      detailJson: { from: article.storyId, into: intoStoryId },
-      by,
-    }),
+    ...leaveStory(
+      db,
+      {
+        kind: "move_article",
+        subjectKind: "article",
+        subjectId: String(articleId),
+        detailJson: { from: article.storyId, into: intoStoryId },
+        by,
+      },
+      article.storyId,
+    ),
   ])
   return article.storyId
 }
@@ -127,13 +184,17 @@ export const newStoryFromArticle = async (db: Db, articleId: number, by: string)
   if (!created) throw new Error("Story insert returned no row")
   await runBatch(db, [
     db.update(articles).set({ storyId: created.id }).where(eq(articles.id, articleId)),
-    recordAction(db, {
-      kind: "new_story",
-      subjectKind: "story",
-      subjectId: String(created.id),
-      detailJson: { articleId, from: a.storyId },
-      by,
-    }),
+    ...leaveStory(
+      db,
+      {
+        kind: "new_story",
+        subjectKind: "story",
+        subjectId: String(created.id),
+        detailJson: { articleId, from: a.storyId },
+        by,
+      },
+      a.storyId,
+    ),
   ])
   return { storyId: created.id, from: a.storyId }
 }
@@ -144,6 +205,11 @@ export const editCell = async (db: Db, meta: TableMeta, id: string, column: stri
   const next = coerce(columnOf(meta, column), value)
   const row = await rowById(db, meta, id)
   if (!row) throw new Error(`No ${meta.name} row ${id}`)
+  // A value outside the edit list, such as a merged story's status, is neither set nor changed here.
+  const allowed = meta.editableValues?.[column]
+  if (allowed && ![row[column], next].every((v) => allowed.includes(String(v)))) {
+    throw new Error(`${meta.name}.${column} can only change between ${allowed.join(" and ")}`)
+  }
   if (row[column] === next) return
   await runBatch(db, [
     db

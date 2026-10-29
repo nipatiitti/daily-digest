@@ -10,7 +10,7 @@ const positiveInt = z.number().int().positive()
 export const articlePage = query(positiveInt, async (id) => {
   const d = db()
   const [article, matches] = await Promise.all([
-    articleDetail(d, id),
+    articleDetail(d, id, DASHBOARD.storyPageRows),
     matchLogFor(d, id).limit(DASHBOARD.storyPageRows),
   ])
   if (!article) error(404, `No article ${id}`)

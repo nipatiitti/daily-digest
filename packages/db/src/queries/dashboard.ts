@@ -2,6 +2,7 @@ import {
   and,
   asc,
   type Column,
+  count,
   desc,
   eq,
   getTableColumns,
@@ -13,6 +14,7 @@ import {
   like,
   lt,
   lte,
+  min,
   or,
   type SQL,
   sql,
@@ -201,47 +203,76 @@ export const opsCounts = async (db: Db, since: number) => {
   return { wouldAlert: alerts?.n ?? 0, dbBytes: size?.bytes ?? null }
 }
 
-/** Everything the story page lists besides the story row and its chart, each list capped at `limit` rows. */
+/**
+ * Everything the story page lists besides the story row and its chart, each list capped at `limit` rows. The
+ * article count and best tier are over all of the story's articles; tiers are letters, so the best is the least.
+ */
 export const storyDetail = async (db: Db, id: number, limit: number) => {
-  const [factRows, articleRows, matches, vulnRows, gates, deliveryRows, votes, signalRows, [follow], audit] =
-    await Promise.all([
-      db.select().from(facts).where(eq(facts.storyId, id)).orderBy(desc(facts.salience), facts.firstSeen).limit(limit),
-      storyArticles(db, id).limit(limit),
-      // Newest placement first, so the first row per article is the one that stands.
-      db
-        .select({ articleId: matchLog.articleId, how: matchLog.how, cosine: matchLog.cosine })
-        .from(matchLog)
-        .innerJoin(articles, eq(articles.id, matchLog.articleId))
-        .where(eq(articles.storyId, id))
-        .orderBy(desc(matchLog.at), desc(matchLog.id))
-        .limit(limit),
-      db
-        .select(getTableColumns(vulns))
-        .from(storyVulns)
-        .innerJoin(vulns, eq(vulns.cveId, storyVulns.cveId))
-        .where(eq(storyVulns.storyId, id))
-        .orderBy(desc(vulns.epss))
-        .limit(limit),
-      db.select().from(gateLog).where(eq(gateLog.storyId, id)).orderBy(desc(gateLog.at)).limit(limit),
-      db.select().from(deliveries).where(eq(deliveries.storyId, id)).orderBy(desc(deliveries.sentAt)).limit(limit),
-      db
-        .select({ deliveryId: feedback.deliveryId, vote: feedback.vote, n: sql<number>`count(*)` })
-        .from(feedback)
-        .where(eq(feedback.storyId, id))
-        .groupBy(feedback.deliveryId, feedback.vote)
-        .limit(limit),
-      db.select().from(signals).where(eq(signals.storyId, id)).orderBy(desc(signals.observedAt)).limit(limit),
-      db.select().from(follows).where(eq(follows.storyId, id)),
-      db
-        .select()
-        .from(actions)
-        .where(and(eq(actions.subjectKind, "story"), eq(actions.subjectId, String(id))))
-        .orderBy(desc(actions.at))
-        .limit(limit),
-    ])
+  const [
+    factRows,
+    articleRows,
+    matches,
+    vulnRows,
+    gates,
+    deliveryRows,
+    votes,
+    signalRows,
+    [follow],
+    audit,
+    [totals],
+    mergedIn,
+  ] = await Promise.all([
+    db.select().from(facts).where(eq(facts.storyId, id)).orderBy(desc(facts.salience), facts.firstSeen).limit(limit),
+    storyArticles(db, id).limit(limit),
+    // Newest placement first, so the first row per article is the one that stands.
+    db
+      .select({ articleId: matchLog.articleId, how: matchLog.how, cosine: matchLog.cosine })
+      .from(matchLog)
+      .innerJoin(articles, eq(articles.id, matchLog.articleId))
+      .where(eq(articles.storyId, id))
+      .orderBy(desc(matchLog.at), desc(matchLog.id))
+      .limit(limit),
+    db
+      .select(getTableColumns(vulns))
+      .from(storyVulns)
+      .innerJoin(vulns, eq(vulns.cveId, storyVulns.cveId))
+      .where(eq(storyVulns.storyId, id))
+      .orderBy(desc(vulns.epss))
+      .limit(limit),
+    db.select().from(gateLog).where(eq(gateLog.storyId, id)).orderBy(desc(gateLog.at)).limit(limit),
+    db.select().from(deliveries).where(eq(deliveries.storyId, id)).orderBy(desc(deliveries.sentAt)).limit(limit),
+    db
+      .select({ deliveryId: feedback.deliveryId, vote: feedback.vote, n: sql<number>`count(*)` })
+      .from(feedback)
+      .where(eq(feedback.storyId, id))
+      .groupBy(feedback.deliveryId, feedback.vote)
+      .limit(limit),
+    db.select().from(signals).where(eq(signals.storyId, id)).orderBy(desc(signals.observedAt)).limit(limit),
+    db.select().from(follows).where(eq(follows.storyId, id)),
+    db
+      .select()
+      .from(actions)
+      .where(and(eq(actions.subjectKind, "story"), eq(actions.subjectId, String(id))))
+      .orderBy(desc(actions.at))
+      .limit(limit),
+    db
+      .select({ n: count(), bestTier: min(sources.tier) })
+      .from(articles)
+      .innerJoin(sources, eq(sources.id, articles.sourceId))
+      .where(eq(articles.storyId, id)),
+    db
+      .select({ id: stories.id, title: stories.title })
+      .from(stories)
+      .where(eq(stories.mergedInto, id))
+      .orderBy(stories.id)
+      .limit(limit),
+  ])
   return {
     facts: factRows,
     articles: articleRows,
+    articleCount: totals?.n ?? 0,
+    bestTier: totals?.bestTier ?? null,
+    mergedIn,
     matches,
     vulns: vulnRows,
     gates,
@@ -253,30 +284,38 @@ export const storyDetail = async (db: Db, id: number, limit: number) => {
   }
 }
 
-/** One article with its source and story, or null. */
-export const articleDetail = async (db: Db, id: number) => {
-  const [row] = await db
-    .select({
-      id: articles.id,
-      title: articles.title,
-      snippet: articles.snippet,
-      canonicalUrl: articles.canonicalUrl,
-      publishedAt: articles.publishedAt,
-      fetchedAt: articles.fetchedAt,
-      originId: articles.originId,
-      storyId: articles.storyId,
-      storyTitle: stories.title,
-      embeddedAt: articles.embeddedAt,
-      injectionSuspect: articles.injectionSuspect,
-      sourceId: articles.sourceId,
-      sourceName: sources.name,
-      tier: sources.tier,
-    })
-    .from(articles)
-    .innerJoin(sources, eq(sources.id, articles.sourceId))
-    .leftJoin(stories, eq(stories.id, articles.storyId))
-    .where(eq(articles.id, id))
-  return row ?? null
+/** One article with its source, story and its newest `limit` audit rows, or null. */
+export const articleDetail = async (db: Db, id: number, limit: number) => {
+  const [[row], audit] = await Promise.all([
+    db
+      .select({
+        id: articles.id,
+        title: articles.title,
+        snippet: articles.snippet,
+        canonicalUrl: articles.canonicalUrl,
+        publishedAt: articles.publishedAt,
+        fetchedAt: articles.fetchedAt,
+        originId: articles.originId,
+        storyId: articles.storyId,
+        storyTitle: stories.title,
+        embeddedAt: articles.embeddedAt,
+        injectionSuspect: articles.injectionSuspect,
+        sourceId: articles.sourceId,
+        sourceName: sources.name,
+        tier: sources.tier,
+      })
+      .from(articles)
+      .innerJoin(sources, eq(sources.id, articles.sourceId))
+      .leftJoin(stories, eq(stories.id, articles.storyId))
+      .where(eq(articles.id, id)),
+    db
+      .select()
+      .from(actions)
+      .where(and(eq(actions.subjectKind, "article"), eq(actions.subjectId, String(id))))
+      .orderBy(desc(actions.at))
+      .limit(limit),
+  ])
+  return row ? { ...row, audit } : null
 }
 
 /** Row counts for the data index, one `count(*)` per table in one batch; articles and llm_calls are the slow scans. */

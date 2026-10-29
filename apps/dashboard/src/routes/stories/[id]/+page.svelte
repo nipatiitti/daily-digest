@@ -19,15 +19,86 @@ const p = $derived(await storyPage(Number(page.params.id)))
 const s = $derived(p.story)
 const stream = $derived(streamSlot(s.category))
 
+/** Statuses, gates, delivery and signal kinds, action kinds and placement methods as the page says them. */
 const WORDS: Record<string, string> = {
   active: "Active",
   closed: "Closed",
   merged: "Merged",
   superseded: "Superseded",
   contradicted: "Contradicted",
+  evidence: "Evidence",
+  alert: "Alert",
+  update: "Update",
+  digest: "Digest",
+  follow: "Follow",
+  hn: "Hacker News",
+  bsky: "Bluesky",
+  gtrends: "Google Trends",
+  mastodon: "Mastodon",
+  sans: "SANS",
+  kagi: "Kagi",
+  close: "Close",
+  merge: "Merge",
+  fact_status: "Fact status",
+  requeue: "Evaluate again",
+  move_article: "Move article",
+  new_story: "New story",
+  edit: "Cell edit",
+  new: "New story",
+  join: "Joined",
+  copy: "Copy of an origin",
+  cve: "Same CVE",
+  "ask-yes": "Asked, same event",
+  "ask-no": "Asked, different event",
+  "join-fallback": "Joined without asking",
+  "new-fallback": "New story without asking",
 }
+const word = (k: string) => WORDS[k] ?? k
 const sty = (id: number) => `/stories/${id}`
 const art = (id: number) => `/articles/${id}`
+
+/** Audit detail keys as words; the linked ones hold story or article IDs. */
+const KEYS: Record<string, string> = {
+  into: "Into",
+  from: "From",
+  to: "To",
+  storyId: "Story",
+  articleId: "Article",
+  articleIds: "Articles",
+  expiresAt: "Until",
+  followedAt: "Followed",
+  lastReportedFactAt: "Last reported fact",
+  previous: "Before",
+  fromStatus: "Status before",
+  intoHash: "Target hash",
+  hash: "Hash",
+  closedFrom: "Closed the story it left",
+}
+const LINKED: Record<string, { prefix: string; href: (id: number) => string }> = {
+  into: { prefix: "STY", href: sty },
+  from: { prefix: "STY", href: sty },
+  storyId: { prefix: "STY", href: sty },
+  articleId: { prefix: "ART", href: art },
+  articleIds: { prefix: "ART", href: art },
+}
+const words = (key: string, v: unknown): string => {
+  if (v === null || v === undefined) return "none"
+  if (typeof v === "boolean") return v ? "yes" : "no"
+  if (typeof v === "number") return key.endsWith("At") ? fmtTime(v) : String(v)
+  if (typeof v === "string") return word(v)
+  if (Array.isArray(v)) return v.map((x) => words(key, x)).join(", ") || "none"
+  return Object.entries(v)
+    .map(([k, x]) => `${KEYS[k] ?? k} ${words(k, x)}`)
+    .join(", ")
+}
+/** An audit row's detail as words, story and article IDs as links. */
+const detailParts = (detail: Record<string, unknown> | null) =>
+  Object.entries(detail ?? {}).map(([k, v]) => {
+    const link = LINKED[k]
+    const ids = (Array.isArray(v) ? v : [v]).filter((x) => typeof x === "number")
+    const links = link && ids.length ? ids.map((id) => ({ href: link.href(id), label: padId(link.prefix, id) })) : []
+    return { label: KEYS[k] ?? k, text: links.length ? "" : words(k, v), links }
+  })
 const input = "h-(--size-control-sm) w-28 rounded-full border border-line-control bg-surface px-3 text-sm text-ink"
 
 /** An enhance callback that submits only after the browser's confirm dialog. */
@@ -36,7 +107,7 @@ const confirmed = (question: string) => async (f: { submit: () => Promise<unknow
 }
 
 const stats = $derived([
-  { name: "Articles", value: fmtInt(p.articles.length) },
+  { name: "Articles", value: fmtInt(p.articleCount) },
   { name: "Independent origins", value: fmtInt(s.independentOrigins) },
   { name: "Domains", value: fmtInt(s.uniqueDomains) },
   { name: "Authoritative", value: fmtInt(s.authoritativeCount) },
@@ -98,6 +169,14 @@ const noFacts = $derived(p.facts.every((g) => g.rows.length === 0))
       {#if s.previousStoryId}Continues <a href={sty(s.previousStoryId)}>{padId("STY", s.previousStoryId)}</a>.{/if}
       {#if p.follow?.active}Followed until {fmtTime(p.follow.expiresAt)}.{/if}
     </p>
+    {#if p.mergedIn.length}
+      <p class="dd-body-sm flex flex-wrap gap-x-3 text-ink-muted">
+        Merged in
+        {#each p.mergedIn as m (m.id)}
+          <a href={sty(m.id)} title={m.title} class="dd-tick">{padId("STY", m.id)}</a>
+        {/each}
+      </p>
+    {/if}
     <dl class="flex flex-wrap gap-x-10 gap-y-4">
       {#each stats as st (st.name)}
         <div class="grid gap-1">
@@ -128,6 +207,10 @@ const noFacts = $derived(p.facts.every((g) => g.rows.length === 0))
   <section class="grid gap-6">
     <h2 class="dd-label">Score breakdown</h2>
     {#if p.breakdown}
+      <p class="dd-body-sm text-ink-muted">
+        Recomputed from the rubric stored at the last evaluation, with current counts, so it can differ from the
+        stored score.
+      </p>
       <BarChart items={p.breakdown.dims} max={4} title="Rubric dimensions, 0 to 4" />
       <dl class="grid gap-x-8 gap-y-2 sm:grid-cols-[auto_minmax(0,1fr)]">
         {#each terms as t (t.term)}
@@ -159,9 +242,9 @@ const noFacts = $derived(p.facts.every((g) => g.rows.length === 0))
                   <input {...sf.fields.fact.as("hidden", f.id)} />
                   <label class="dd-label">
                     Status
-                    <select name="status" class={input}>
+                    <select {...sf.fields.status.as("select", f.status)} class={input}>
                       {#each p.facts as g (g.status)}
-                        <option value={g.status} selected={g.status === f.status}>{WORDS[g.status]}</option>
+                        <option value={g.status}>{WORDS[g.status]}</option>
                       {/each}
                     </select>
                   </label>
@@ -210,7 +293,7 @@ const noFacts = $derived(p.facts.every((g) => g.rows.length === 0))
               </td>
               <td>
                 {#if a.match}
-                  {a.match.how}{#if a.match.cosine !== null}, cosine {a.match.cosine.toFixed(2)}{/if}
+                  {word(a.match.how)}{#if a.match.cosine !== null}, cosine {a.match.cosine.toFixed(2)}{/if}
                 {:else}
                   Not logged
                 {/if}
@@ -246,7 +329,7 @@ const noFacts = $derived(p.facts.every((g) => g.rows.length === 0))
         {#each p.gates as g (g.id)}
           <li class="dd-body-sm flex flex-wrap gap-x-6 gap-y-1 py-2">
             <span class="dd-tick whitespace-nowrap">{fmtTime(g.at)}</span>
-            <span class="font-semibold">{g.gate}</span>
+            <span class="font-semibold">{word(g.gate)}</span>
             <span>{g.decision === "pass" ? "Pass" : "Fail"}{g.shadow ? ", shadow" : ""}</span>
             <span class="text-ink-muted">{g.reasonsJson.join(", ")}</span>
           </li>
@@ -264,7 +347,7 @@ const noFacts = $derived(p.facts.every((g) => g.rows.length === 0))
         {#each p.deliveries as dl (dl.id)}
           <li class="dd-body-sm flex flex-wrap gap-x-6 gap-y-1 py-2">
             <span class="dd-tick whitespace-nowrap">{fmtTime(dl.sentAt)}</span>
-            <span class="font-semibold">{dl.kind}</span>
+            <span class="font-semibold">{word(dl.kind)}</span>
             {#if dl.digestDate}<span>Digest {dl.digestDate}</span>{/if}
             {#if dl.scoreAtSend !== null}<span>Score at send {dl.scoreAtSend}</span>{/if}
             {#if dl.silent}<span>Silent</span>{/if}
@@ -284,7 +367,7 @@ const noFacts = $derived(p.facts.every((g) => g.rows.length === 0))
         {#each p.signals as sg (sg.id)}
           <li class="dd-body-sm flex flex-wrap gap-x-6 gap-y-1 py-2">
             <span class="dd-tick whitespace-nowrap">{fmtTime(sg.observedAt)}</span>
-            <span class="font-semibold">{sg.kind}</span>
+            <span class="font-semibold">{word(sg.kind)}</span>
             <span>{sg.value}</span>
             {#if sg.ref}<span class="text-ink-muted">{sg.ref}</span>{/if}
           </li>
@@ -344,9 +427,15 @@ const noFacts = $derived(p.facts.every((g) => g.rows.length === 0))
         {#each p.audit as act (act.id)}
           <li class="dd-body-sm flex flex-wrap gap-x-6 gap-y-1 py-2">
             <span class="dd-tick whitespace-nowrap">{fmtTime(act.at)}</span>
-            <span class="font-semibold">{act.kind}</span>
+            <span class="font-semibold">{word(act.kind)}</span>
             <span>{act.by}</span>
-            {#if act.detailJson}<span class="dd-tick text-ink-muted">{JSON.stringify(act.detailJson)}</span>{/if}
+            {#each detailParts(act.detailJson) as part (part.label)}
+              <span class="text-ink-muted">
+                {part.label}
+                {part.text}
+                {#each part.links as l (l.href)}<a href={l.href} class="dd-tick">{l.label}</a>{" "}{/each}
+              </span>
+            {/each}
           </li>
         {/each}
       </ul>

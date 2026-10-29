@@ -1,5 +1,7 @@
 import { env } from "cloudflare:workers"
 import {
+  ALERT,
+  articleSetHash,
   bucketsBetween,
   CONFIG_VERSION,
   credibilityFor,
@@ -20,10 +22,10 @@ import {
   mergeStory,
   RUBRIC_DIMENSIONS,
   recordAction,
+  refreshStoryCounters,
   rollupSeries,
   type Story,
   storyDetail,
-  TIERS,
 } from "@digest/db"
 import { error, invalid } from "@sveltejs/kit"
 import { z } from "zod"
@@ -43,7 +45,10 @@ const gateScore = (reasons: string[]) => {
   return null
 }
 
-/** Every term of core's score, recomputed from the stored rubric and counts as of `at`, the last evaluation. */
+/**
+ * Every term of core's score, recomputed from the rubric stored at the last evaluation with the story's current
+ * counts and best tier, and recency as of `at`, the last alert gate. It can differ from the stored score.
+ */
 const scoreBreakdown = (story: Story, bestTier: string | null, at: number) => {
   const r = story.rubricJson
   if (!r) return null
@@ -113,11 +118,9 @@ export const storyPage = query(positiveInt, async (id) => {
       values: hours.map((b) => perHour.get(b) ?? 0),
     },
     scoreHistory: { labels: scores.map((s) => new Date(s.at).toISOString()), values: scores.map((s) => s.score) },
-    breakdown: scoreBreakdown(
-      story,
-      TIERS.find((t) => detail.articles.some((a) => a.tier === t)) ?? null,
-      alerts[0]?.at ?? now,
-    ),
+    articleCount: detail.articleCount,
+    mergedIn: detail.mergedIn,
+    breakdown: scoreBreakdown(story, detail.bestTier, alerts[0]?.at ?? now),
     facts: FACT_STATUSES.map((status) => ({
       status,
       rows: detail.facts
@@ -151,8 +154,11 @@ const subject = z.object({ id: positiveInt })
 
 export const closeForm = form(subject, ({ id }) => write(id, (by) => closeStory(db(), id, by)))
 
+/** Counters as the process stage writes them, with the world velocity window. */
+const counterOpts = { velocityWindowMinutes: ALERT.worldVelocityWindowMinutes }
+
 export const mergeForm = form(subject.extend({ into: positiveInt }), ({ id, into }) =>
-  write(id, (by) => mergeStory(db(), id, into, by, Date.now())),
+  write(id, (by) => mergeStory(db(), id, into, by, Date.now(), counterOpts)),
 )
 
 export const followForm = form(subject.extend({ days: positiveInt }), ({ id, days }) =>
@@ -160,17 +166,24 @@ export const followForm = form(subject.extend({ days: positiveInt }), ({ id, day
 )
 
 export const factStatusForm = form(subject.extend({ fact: positiveInt, status: z.enum(FACT_STATUSES) }), (f) =>
-  write(f.id, (by) => changeFactStatus(db(), f.fact, f.status, by)),
+  write(f.id, (by) => changeFactStatus(db(), f.fact, f.id, f.status, by)),
 )
 
-/** Starts StoryEval again on the current article set; the suffix keeps the instance ID unique. */
+/**
+ * Starts StoryEval again on the current article set, hashed as the process stage hashes it; the suffix keeps the
+ * instance ID unique. The audit row goes first, so a started evaluation always has one.
+ */
 export const requeueForm = form(subject, ({ id }) =>
   write(id, async (by) => {
     const d = db()
     const story = await getStory(d, id)
-    if (!story?.extractionHash) throw new Error(`Story ${id} has not cleared the evidence bar, so it has no hash`)
-    const params = { storyId: id, hash: story.extractionHash }
-    await env.STORY_EVAL.create({ id: `story-${id}-${params.hash}-requeue-${Date.now()}`, params })
+    if (!story) throw new Error(`Story ${id} does not exist`)
+    if (story.status !== "active") throw new Error(`Story ${id} is ${story.status}, so it is not evaluated again`)
+    const now = Date.now()
+    const counters = await refreshStoryCounters(d, id, now, counterOpts)
+    if (!counters) throw new Error(`Story ${id} has no articles to evaluate`)
+    const params = { storyId: id, hash: articleSetHash(counters.articleIds) }
     await recordAction(d, { kind: "requeue", subjectKind: "story", subjectId: String(id), detailJson: params, by })
+    await env.STORY_EVAL.create({ id: `story-${id}-${params.hash}-requeue-${now}`, params })
   }),
 )

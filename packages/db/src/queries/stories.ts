@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm"
+import { and, desc, eq, gte, inArray, isNull, lt, ne, sql } from "drizzle-orm"
 import { chunkRows, type Db, runBatch } from "../client.ts"
 import {
   articles,
@@ -128,11 +128,11 @@ export const upsertVulns = async (db: Db, rows: (typeof vulns.$inferInsert)[]) =
 }
 
 export const linkStoryVulns = async (db: Db, storyId: number, cveIds: string[]) => {
-  if (cveIds.length === 0) return
-  await db
-    .insert(storyVulns)
-    .values(cveIds.map((cveId) => ({ storyId, cveId })))
-    .onConflictDoNothing()
+  const rows = cveIds.map((cveId) => ({ storyId, cveId }))
+  await runBatch(
+    db,
+    chunkRows(rows, 2).map((chunk) => db.insert(storyVulns).values(chunk).onConflictDoNothing()),
+  )
 }
 
 /** KEV listing dates from the CISA KEV source's own articles (guid = CVE ID). */
@@ -209,7 +209,13 @@ export const unassignedArticleCount = async (db: Db) => {
  * pointer, and the target's counters are recomputed. The target's extraction hash is cleared so
  * the next process pass re-evaluates it with the combined evidence.
  */
-export const mergeStories = async (db: Db, fromId: number, intoId: number, now: number) => {
+export const mergeStories = async (
+  db: Db,
+  fromId: number,
+  intoId: number,
+  now: number,
+  opts?: { velocityWindowMinutes: number },
+) => {
   if (fromId === intoId) return
   const links = await db.select({ cveId: storyVulns.cveId }).from(storyVulns).where(eq(storyVulns.storyId, fromId))
   // Articles and their story rollup rows move together, so the merged story's history follows it.
@@ -241,7 +247,10 @@ export const mergeStories = async (db: Db, fromId: number, intoId: number, now: 
     intoId,
     links.map((l) => l.cveId),
   )
-  await db.update(stories).set({ status: "merged", mergedInto: intoId }).where(eq(stories.id, fromId))
+  await db
+    .update(stories)
+    .set({ status: "merged", mergedInto: intoId })
+    .where(and(eq(stories.id, fromId), ne(stories.status, "merged")))
   await db.update(stories).set({ extractionHash: null }).where(eq(stories.id, intoId))
-  await refreshStoryCounters(db, intoId, now)
+  await refreshStoryCounters(db, intoId, now, opts)
 }
