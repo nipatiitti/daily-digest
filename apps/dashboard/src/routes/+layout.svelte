@@ -23,7 +23,7 @@ const nav = [
 </svelte:head>
 
 {#snippet statusLamps()}
-  <!-- The pending snippet lets the page stream; the lamps fill in when the query resolves. -->
+  <!-- The server renders nothing here; the lamps load after hydration so the D1 reads never hold up the page. -->
   <svelte:boundary>
     {#each await lamps() as lamp (lamp.label)}
       <span title={lamp.title}><StatusLamp state={lamp.state} label={lamp.label} /></span>

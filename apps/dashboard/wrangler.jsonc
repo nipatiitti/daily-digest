@@ -1,7 +1,7 @@
 // Deployed by Workers Builds on every push to main (see DEPLOY.md).
 // No placeholders left; nothing secret lives here.
 {
-  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "digest-dashboard",
   // Written by `vite build` (@sveltejs/adapter-cloudflare); static files are served from the same folder.
   "main": ".svelte-kit/cloudflare/_worker.js",

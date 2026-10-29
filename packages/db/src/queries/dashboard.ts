@@ -1,4 +1,4 @@
-import { and, isNotNull, isNull, sql } from "drizzle-orm"
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm"
 import type { Db } from "../client.ts"
 import { sources, stories } from "../schema/index.ts"
 import { spendSince } from "./ops.ts"
@@ -10,7 +10,7 @@ export const lampInputs = async (db: Db, now: number) => {
     db
       .select({ n: sql<number>`count(*)` })
       .from(stories)
-      .where(and(isNotNull(stories.extractionHash), isNull(stories.score))),
+      .where(and(eq(stories.status, "active"), isNotNull(stories.extractionHash), isNull(stories.score))),
     spendSince(db, now - (now % 86_400_000)),
   ])
   return {

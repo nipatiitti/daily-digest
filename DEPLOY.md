@@ -73,10 +73,11 @@ secret token. Both skip quietly when the variables aren't set.
    - Copy the application's **AUD tag** into `ACCESS_AUD` in `apps/dashboard/wrangler.jsonc`, and the team
      domain (`<team>.cloudflareaccess.com`) into `ACCESS_TEAM_DOMAIN`. Neither is secret.
    - Access stops strangers at the edge. The Worker verifies the `Cf-Access-Jwt-Assertion` header against
-     the team's keys as well and answers 403 without it, or when either var is empty.
+     the team's keys as well and answers 403 on every page and remote call without it, or when either var is
+     empty. Static build assets are covered by Access alone.
 
    The dashboard's other vars: `DAILY_SPEND_CAP_USD` mirrors the pipeline's cap for the spend lamp, and
-   `DASHBOARD_SPEND_CAP_USD` caps Claude calls the dashboard makes itself. It binds the pipeline's `digest`
+   `DASHBOARD_SPEND_CAP_USD` is reserved for the on-demand Claude answers (not built yet). It binds the pipeline's `digest`
    and `story-eval` Workflows by `script_name`, so deploy the pipeline first. `vite dev` skips the Access check
    and reads the production D1 (`"remote": true`), which needs `npx wrangler login`.
 
