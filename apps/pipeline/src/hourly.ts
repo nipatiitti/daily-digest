@@ -1,4 +1,5 @@
 import type { Db } from "@digest/db"
+import { entitiesStep } from "./hourly/entities.ts"
 import { momentumStep } from "./hourly/momentum.ts"
 import { rollupStep } from "./hourly/rollups.ts"
 import type { llmFor } from "./llm.ts"
@@ -9,6 +10,7 @@ type Step = { name: string; run: () => Promise<Record<string, number>> }
 export const runHourly = async (_env: Env, db: Db, _llm: ReturnType<typeof llmFor>, now: number) => {
   const steps: Step[] = [
     { name: "rollups", run: () => rollupStep(db, now) },
+    { name: "entities", run: () => entitiesStep(db, now) },
     { name: "momentum", run: () => momentumStep(db, now) },
   ]
   for (const step of steps) {

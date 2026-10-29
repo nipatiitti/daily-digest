@@ -1,6 +1,7 @@
 export * from "./articles.ts"
 export * from "./common.ts"
 export * from "./delivery.ts"
+export * from "./entities.ts"
 export * from "./meta.ts"
 export * from "./ops.ts"
 export * from "./rollups.ts"

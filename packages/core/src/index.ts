@@ -1,4 +1,5 @@
 export * from "./config.ts"
+export * from "./entities.ts"
 export * from "./feed.ts"
 export * from "./filter.ts"
 export * from "./forecast.ts"

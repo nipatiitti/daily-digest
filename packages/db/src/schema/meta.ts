@@ -4,12 +4,19 @@ import { getTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core"
 // The files, not index.ts: index.ts re-exports this module, so reading its tables here would hit the cycle.
 import * as articles from "./articles.ts"
 import * as delivery from "./delivery.ts"
+import * as entities from "./entities.ts"
 import * as ops from "./ops.ts"
 import * as rollups from "./rollups.ts"
 import * as sources from "./sources.ts"
 import * as stories from "./stories.ts"
 
-type Schema = typeof articles & typeof delivery & typeof ops & typeof rollups & typeof sources & typeof stories
+type Schema = typeof articles &
+  typeof delivery &
+  typeof entities &
+  typeof ops &
+  typeof rollups &
+  typeof sources &
+  typeof stories
 
 /** SQL name of every table in the schema. */
 export type TableName = {
@@ -35,13 +42,15 @@ export type TableMeta = {
   columns: ColumnMeta[]
   /** Columns the dashboard may change one cell at a time. */
   editable: string[]
+  /** The values an edit may set and replace, where narrower than the column's enum. */
+  editableValues?: Record<string, readonly string[]>
   /** The external-content FTS5 table over this one, keyed by its rowid (0001_fts.sql). */
   fts?: { table: string; columns: string[] }
   linksTo: Record<string, LinkKind>
 }
 
 /** Unix ms integers whose name does not end in `At`. */
-const TIMESTAMPS = new Set(["at", "bucket", "firstSeen", "kevDateAdded", "euvdExploitedSince"])
+const TIMESTAMPS = new Set(["at", "bucket", "firstSeen", "lastSeen", "kevDateAdded", "euvdExploitedSince"])
 
 const LINKS: Record<string, LinkKind> = {
   storyId: "story",
@@ -51,6 +60,12 @@ const LINKS: Record<string, LinkKind> = {
   articleId: "article",
   originId: "article",
   sourceId: "source",
+  entityId: "entity",
+}
+
+/** Where a column name links elsewhere in one table than in the rest. */
+const TABLE_LINKS: Partial<Record<TableName, Record<string, LinkKind>>> = {
+  entities: { mergedInto: "entity" },
 }
 
 const EDITABLE: Partial<Record<TableName, string[]>> = {
@@ -58,9 +73,15 @@ const EDITABLE: Partial<Record<TableName, string[]>> = {
   stories: ["status"],
 }
 
+/** A merge moves articles and rollups, so a cell edit never sets or undoes one. */
+const EDITABLE_VALUES: Partial<Record<TableName, Record<string, readonly string[]>>> = {
+  stories: { status: ["active", "closed"] },
+}
+
 const FTS: Partial<Record<TableName, TableMeta["fts"]>> = {
   articles: { table: "articles_fts", columns: ["title", "snippet"] },
   stories: { table: "stories_fts", columns: ["title", "primary_entity", "summary", "why_matters"] },
+  entities: { table: "entities_fts", columns: ["name"] },
 }
 
 const kindOf = (name: string, c: Column): ColumnKind => {
@@ -96,13 +117,19 @@ const describe = (table: SQLiteTable): TableMeta => {
       values: c.enumValues,
     })),
     editable: EDITABLE[name] ?? [],
+    editableValues: EDITABLE_VALUES[name],
     fts: FTS[name],
-    linksTo: Object.fromEntries(entries.flatMap(([k]) => (LINKS[k] ? [[k, LINKS[k]]] : []))),
+    linksTo: Object.fromEntries(
+      entries.flatMap(([k]) => {
+        const link = TABLE_LINKS[name]?.[k] ?? LINKS[k]
+        return link ? [[k, link]] : []
+      }),
+    ),
   }
 }
 
 /** Every table in the schema files, by name. */
-export const TABLES: TableMeta[] = [articles, delivery, ops, rollups, sources, stories]
+export const TABLES: TableMeta[] = [articles, delivery, entities, ops, rollups, sources, stories]
   .flatMap((m) => Object.values(m).filter((v) => is(v, SQLiteTable)))
   .map(describe)
   .sort((a, b) => a.name.localeCompare(b.name))

@@ -1,6 +1,14 @@
 import { ALERT, HOURLY } from "@digest/core"
-import { type Db, writeMomentum } from "@digest/db"
+import { type Db, writeEntityMomentum, writeMomentum } from "@digest/db"
 
-/** Momentum and origins30m (decay only, process keeps it fresh) onto stories, items24h onto sources. After rollups. */
-export const momentumStep = (db: Db, now: number) =>
-  writeMomentum(db, now, { windows: HOURLY.momentumWindows, velocityWindowMinutes: ALERT.worldVelocityWindowMinutes })
+/**
+ * Momentum and origins30m (decay only, process keeps it fresh) onto stories, items24h onto sources, momentum onto
+ * recently seen entities. After rollups.
+ */
+export const momentumStep = async (db: Db, now: number) => ({
+  ...(await writeMomentum(db, now, {
+    windows: HOURLY.momentumWindows,
+    velocityWindowMinutes: ALERT.worldVelocityWindowMinutes,
+  })),
+  ...(await writeEntityMomentum(db, now, HOURLY.momentumWindows)),
+})

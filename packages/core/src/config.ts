@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 7
+export const CONFIG_VERSION = 8
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -132,6 +132,38 @@ export const HOURLY = {
   recomputeBuckets: 3,
   /** Momentum compares the last N complete hours with the N before: short is momentum_24h, long is momentum_7d. */
   momentumWindows: { short: 24, long: 168 },
+}
+
+/** Entities folded hourly from StoryEval's extraction into `entities` and `story_entities`. */
+export const ENTITIES = {
+  /** Links kept per story: the primary entity first, then the extraction's order, then CVEs. */
+  maxPerStory: 24,
+  /** The first run folds stories evaluated this far back; later runs never reach further. */
+  backfillDays: 14,
+  /** Runs re-read evaluations this far before the cursor: entities are saved after the LLM call is logged. */
+  rescanHours: 1,
+  /** Stories folded per run, the rest waiting an hour; keeps one run's D1 statements in the low hundreds. */
+  maxStoriesPerRun: 200,
+  /** Trailing words dropped from keys, so "Nokia Oyj" and "Nokia" are one entity. */
+  suffixes: [
+    "inc",
+    "ltd",
+    "llc",
+    "plc",
+    "oy",
+    "oyj",
+    "ab",
+    "as",
+    "gmbh",
+    "ag",
+    "sa",
+    "corporation",
+    "corp",
+    "co",
+    "company",
+    "group",
+    "holdings",
+  ] as readonly string[],
 }
 
 /** Holt linear forecast over hourly counts. */
