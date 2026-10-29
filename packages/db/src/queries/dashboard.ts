@@ -15,6 +15,7 @@ import {
   lt,
   lte,
   min,
+  ne,
   or,
   type SQL,
   sql,
@@ -27,6 +28,7 @@ import {
   columnOf,
   dbStats,
   deliveries,
+  entities,
   facts,
   feedback,
   follows,
@@ -40,6 +42,7 @@ import {
   signals,
   sources,
   stories,
+  storyEntities,
   storyVulns,
   TABLES,
   type TableMeta,
@@ -345,7 +348,9 @@ const filterWhere = (meta: TableMeta, filters: BrowseFilter[]) => {
   if (filters.length > MAX_FILTERS) throw new Error(`At most ${MAX_FILTERS} filters`)
   return filters.map((f) => {
     const c = columnOf(meta, f.column)
-    return f.op === "contains" ? like(c.column, `%${f.value}%`) : COMPARE[f.op](c.column, coerce(c, f.value))
+    if (f.op !== "contains") return COMPARE[f.op](c.column, coerce(c, f.value))
+    // `%` and `_` in the value match themselves, not any text.
+    return sql`${c.column} like ${`%${f.value.replace(/[\\%_]/g, "\\$&")}%`} escape '\\'`
   })
 }
 
@@ -353,11 +358,11 @@ const ftsWhere = (meta: TableMeta, q: string | undefined) => {
   if (!q) return undefined
   if (!meta.fts) throw new Error(`Table ${meta.name} has no text search`)
   const fts = sql.identifier(meta.fts.table)
-  // Each word quoted, so FTS5 syntax in `q` matches as text instead of failing to parse.
+  // Each word quoted, so FTS5 syntax in `q` matches as text instead of failing to parse, and a prefix query.
   const match = q
     .split(/\s+/)
     .filter(Boolean)
-    .map((w) => `"${w.replaceAll('"', '""')}"`)
+    .map((w) => `"${w.replaceAll('"', '""')}"*`)
     .join(" ")
   const key = columnOf(meta, meta.primaryKey[0] ?? "").column
   return sql`${key} in (select rowid from ${fts} where ${fts} match ${match})`
@@ -365,7 +370,11 @@ const ftsWhere = (meta: TableMeta, q: string | undefined) => {
 
 /** The sort column, then the primary key columns it leaves out, so the order is total and a row can resume it. */
 const orderOf = (meta: TableMeta, { column }: BrowseQuery["sort"]) =>
-  (column ? [column, ...meta.primaryKey.filter((k) => k !== column)] : meta.primaryKey).map((k) => columnOf(meta, k))
+  (column ? [column, ...meta.primaryKey.filter((k) => k !== column)] : meta.primaryKey).map((k) => {
+    const c = columnOf(meta, k)
+    if (c.kind === "json") throw new Error(`${meta.name}.${k} is JSON and cannot be sorted`)
+    return c
+  })
 
 /**
  * Rows after the cursor's values in `cols` order. SQLite sorts nulls first ascending and last descending; only the
@@ -407,7 +416,8 @@ export const rowById = async (db: Db, meta: TableMeta, id: string) => {
 
 /**
  * A page of the table browser: keyset paging after the row ID `after`, in the sort column then the primary key. `next`
- * is the row ID to pass as `after` for the following page, null on the last one.
+ * is the row ID to pass as `after` for the following page, null on the last one. The cursor is only the row ID, so
+ * its sort value is read again: a row whose sort value changes between pages can be skipped or shown twice.
  */
 export const browseTable = async (db: Db, meta: TableMeta, opts: BrowseQuery & { after?: string; limit: number }) => {
   const cursor = opts.after === undefined ? null : await rowById(db, meta, opts.after)
@@ -427,4 +437,104 @@ export async function* exportRows(db: Db, meta: TableMeta, query: BrowseQuery, m
     cursor = rows.at(-1) ?? null
     if (rows.length < EXPORT_CHUNK) return
   }
+}
+
+/** An FTS5 prefix query for `q`, each word quoted so FTS5 syntax in it matches as text instead of failing to parse. */
+export const ftsMatch = (q: string) =>
+  q
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => `"${w.replaceAll('"', '""')}"*`)
+    .join(" ")
+
+/** Entities not merged away, most stories first; `q` searches their names. */
+export const entityList = (db: Db, opts: { q?: string; limit: number }) => {
+  const match = ftsMatch(opts.q ?? "")
+  return db
+    .select({
+      id: entities.id,
+      key: entities.key,
+      name: entities.name,
+      kind: entities.kind,
+      storyCount: entities.storyCount,
+      momentum24h: entities.momentum24h,
+      lastSeen: entities.lastSeen,
+    })
+    .from(entities)
+    .where(
+      and(
+        isNull(entities.mergedInto),
+        match ? sql`${entities.id} in (select rowid from entities_fts where entities_fts match ${match})` : undefined,
+      ),
+    )
+    .orderBy(desc(entities.storyCount), desc(entities.lastSeen))
+    .limit(opts.limit)
+}
+
+/** A story's entities that were not merged away, most stories first. */
+export const storyEntityList = (db: Db, storyId: number, limit: number) =>
+  db
+    .select({ key: entities.key, name: entities.name, kind: entities.kind, momentum24h: entities.momentum24h })
+    .from(storyEntities)
+    .innerJoin(entities, eq(entities.id, storyEntities.entityId))
+    .where(and(eq(storyEntities.storyId, storyId), isNull(entities.mergedInto)))
+    .orderBy(desc(entities.storyCount))
+    .limit(limit)
+
+/** Each story with its article and distinct source counts, as rankedStories counts them. */
+const withStoryCounts = async <T extends { id: number }>(db: Db, rows: T[]) => {
+  const ids = rows.map((r) => r.id)
+  const counts = ids.length
+    ? await db
+        .select({
+          id: articles.storyId,
+          articles: sql<number>`count(*)`,
+          sources: sql<number>`count(distinct ${articles.sourceId})`,
+        })
+        .from(articles)
+        .where(inArray(articles.storyId, ids))
+        .groupBy(articles.storyId)
+    : []
+  const byId = new Map(counts.map((c) => [c.id, c]))
+  return rows.map((r) => ({ ...r, articles: byId.get(r.id)?.articles ?? 0, sources: byId.get(r.id)?.sources ?? 0 }))
+}
+
+/** Day start of a story link's first-seen time. */
+const linkDay = sql<number>`(${storyEntities.firstSeen} / 86400000) * 86400000`
+
+/**
+ * The entity page's lists: up to `limit` aliases, up to `limit` unmerged stories newest first with their counts, and
+ * new story links per day since `since` (empty days are missing).
+ */
+export const entityDetail = async (db: Db, id: number, opts: { since: number; limit: number }) => {
+  const [aliases, rows, storiesPerDay] = await Promise.all([
+    db
+      .select({ id: entities.id, key: entities.key, name: entities.name })
+      .from(entities)
+      .where(eq(entities.mergedInto, id))
+      .orderBy(entities.name)
+      .limit(opts.limit),
+    db
+      .select({
+        id: stories.id,
+        category: stories.category,
+        score: stories.score,
+        lastArticleAt: stories.lastArticleAt,
+        title: stories.title,
+        summary: stories.summary,
+        origins: stories.independentOrigins,
+        momentum24h: stories.momentum24h,
+      })
+      .from(storyEntities)
+      .innerJoin(stories, eq(stories.id, storyEntities.storyId))
+      .where(and(eq(storyEntities.entityId, id), ne(stories.status, "merged")))
+      .orderBy(desc(storyEntities.firstSeen))
+      .limit(opts.limit),
+    db
+      .select({ day: linkDay, n: count() })
+      .from(storyEntities)
+      .where(and(eq(storyEntities.entityId, id), gte(storyEntities.firstSeen, opts.since)))
+      .groupBy(linkDay),
+  ])
+  return { aliases, stories: await withStoryCounts(db, rows), storiesPerDay }
 }

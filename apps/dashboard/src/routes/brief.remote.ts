@@ -5,10 +5,12 @@ import {
   CATEGORIES,
   type Db,
   deskSlices,
+  entityByKey,
   evaluationSlices,
   firstDeskBucket,
   opsCounts,
   previousDigestSentAt,
+  type RollupKind,
   rankedStories,
   rollupBuckets,
   rollupTotals,
@@ -102,36 +104,65 @@ export const readouts = query(rangeSchema, async (range) => {
 })
 
 /**
- * Articles per stream and bucket. Hourly ranges end at the last complete hour and append a Holt projection fed by
- * FORECAST.historyHours of history; day-bucketed ranges end on today, drawn as partial after the last complete day.
- * Point links cover measured buckets only.
+ * The big chart's buckets for a range. Hourly ranges end at the last complete hour and append a Holt projection fed
+ * by FORECAST.historyHours of history, so reads start that far back at least; day-bucketed ranges end on today, drawn
+ * as partial after the last complete day. `counts` reads articles per key and bucket over the read span, and `values`
+ * turns one key's counts into the drawn line.
  */
-export const streamSeries = query(rangeSchema, async (range) => {
-  const d = db()
-  const now = Date.now()
+const chartWindow = async (d: Db, range: Range, now: number) => {
   const { from, bucketMs } = await windowOf(d, range, now)
   const hourly = bucketMs === HOUR_MS
   const to = hourly ? hourBucket(now) : now
   const first = Math.floor(from / bucketMs) * bucketMs
   const start = hourly ? Math.min(first, to - FORECAST.historyHours * HOUR_MS) : first
-  const count = byKeyBucket(await rollupTotals(d, "stream", [...CATEGORIES], start, to, bucketMs))
   const buckets = bucketsBetween(start, to).filter((b) => b % bucketMs === 0)
   const skip = (first - start) / bucketMs
-  const measured = buckets.slice(skip)
+  return {
+    hourly,
+    to,
+    measured: buckets.slice(skip),
+    counts: async (kind: RollupKind, keys: string[]) =>
+      byKeyBucket(await rollupTotals(d, kind, keys, start, to, bucketMs)),
+    values: (count: (bucket: number) => number) => {
+      const values = buckets.map(count)
+      const projection = hourly ? holtLinear(values.slice(-FORECAST.historyHours)) : []
+      return [...values.slice(skip), ...projection]
+    },
+  }
+}
+
+/** Articles per stream and bucket, as chartWindow draws them. Point links cover measured buckets only. */
+export const streamSeries = query(rangeSchema, async (range) => {
+  const d = db()
+  const { hourly, to, measured, counts, values } = await chartWindow(d, range, Date.now())
+  const count = await counts("stream", [...CATEGORIES])
   const shown = [...measured, ...(hourly ? bucketsBetween(to, to + FORECAST.horizonHours * HOUR_MS) : [])]
   const bucket = hourly ? "hour" : "day"
   return {
     bucket,
     labels: shown.map((b) => new Date(b).toISOString()),
     hrefs: measured.map((b) => `/stories?range=${range}&${bucket}=${b}`),
-    series: CATEGORIES.map((c) => {
-      const values = buckets.map((b) => count(c, b))
-      const projection = hourly ? holtLinear(values.slice(-FORECAST.historyHours)) : []
-      return { name: STREAM_NAMES[c], stream: streamSlot(c), values: [...values.slice(skip), ...projection] }
-    }),
+    series: CATEGORIES.map((c) => ({
+      name: STREAM_NAMES[c],
+      stream: streamSlot(c),
+      values: values((b) => count(c, b)),
+    })),
     projectFrom: Math.max(0, measured.length - (hourly ? 1 : 2)),
   }
 })
+
+/** One entity's articles per bucket, lined up with streamSeries; null for an unknown key. */
+export const seriesFor = query(
+  z.object({ kind: z.literal("entity"), key: z.string(), range: rangeSchema }),
+  async ({ kind, key, range }) => {
+    const d = db()
+    const entity = await entityByKey(d, key)
+    if (!entity) return null
+    const { counts, values } = await chartWindow(d, range, Date.now())
+    const count = await counts(kind, [String(entity.id)])
+    return { key, name: entity.name, stream: "other" as const, values: values((b) => count(entity.id, b)) }
+  },
+)
 
 /** The best active stories with an article in the range, each with an hourly spark, and the lead's facts. */
 export const topStories = query(rangeSchema, async (range) => {

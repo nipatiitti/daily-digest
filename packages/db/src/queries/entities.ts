@@ -133,6 +133,11 @@ export const entityByKey = async (db: Db, key: string) => {
   return row ?? null
 }
 
+export const entityById = async (db: Db, id: number) => {
+  const [row] = await db.select().from(entities).where(eq(entities.id, id))
+  return row ?? null
+}
+
 /** Hour start of an article's publish time, as queries/rollups.ts buckets it. */
 const articleBucket = sql<number>`(${articles.publishedAt} / 3600000) * 3600000`
 const entityGroupWhere = (from: number, to: number, entityIds?: number[]) =>

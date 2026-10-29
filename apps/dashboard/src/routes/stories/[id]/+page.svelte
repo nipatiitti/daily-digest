@@ -3,6 +3,7 @@ import { BarChart, TrendChart } from "#lib/charts/index.ts"
 import {
   Button,
   Delta,
+  EntityChip,
   FactRow,
   fmtDate,
   fmtInt,
@@ -159,7 +160,13 @@ const noFacts = $derived(p.facts.every((g) => g.rows.length === 0))
       <span class="dd-label">{WORDS[s.status]}</span>
     </div>
     <h1 class="dd-display">{s.title}</h1>
-    <!-- entity chips: S9b -->
+    {#if p.entities.length}
+      <div class="flex flex-wrap gap-3">
+        {#each p.entities as e (e.key)}
+          <EntityChip entityKey={e.key} name={e.name} kind={e.kind} pct={e.momentum24h} />
+        {/each}
+      </div>
+    {/if}
     <!-- theme chips: S11a -->
     <p class="dd-body">{s.summary ?? "Not evaluated yet."}</p>
     {#if s.whyMatters}<p class="dd-body text-ink-muted">{s.whyMatters}</p>{/if}

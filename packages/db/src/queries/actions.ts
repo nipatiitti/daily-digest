@@ -1,19 +1,22 @@
-import { and, eq, sql } from "drizzle-orm"
+import { and, eq, or, sql } from "drizzle-orm"
 import { type Db, runBatch } from "../client.ts"
 import {
   actions,
   articles,
   coerce,
   columnOf,
+  entities,
   type FactStatus,
   facts,
   follows,
   rowWhere,
   sources,
   stories,
+  storyEntities,
   type TableMeta,
 } from "../schema/index.ts"
 import { rowById } from "./dashboard.ts"
+import { entityById, refreshEntityCounts, refreshEntityRollups } from "./entities.ts"
 import { getStory, mergeStories, setFactStatus } from "./stories.ts"
 
 /** The audit row for a dashboard write, returned unrun so the caller batches it with the write. */
@@ -203,6 +206,10 @@ export const newStoryFromArticle = async (db: Db, articleId: number, by: string)
 export const editCell = async (db: Db, meta: TableMeta, id: string, column: string, value: string, by: string) => {
   if (!meta.editable.includes(column)) throw new Error(`${meta.name}.${column} is not editable`)
   const next = coerce(columnOf(meta, column), value)
+  // An editable number is a count or an interval and an editable text a name, so neither may be zero or blank.
+  if (typeof next === "number" ? next <= 0 : typeof next === "string" && !next.trim()) {
+    throw new Error(`${meta.name}.${column} cannot be "${value}"`)
+  }
   const row = await rowById(db, meta, id)
   if (!row) throw new Error(`No ${meta.name} row ${id}`)
   // A value outside the edit list, such as a merged story's status, is neither set nor changed here.
@@ -221,6 +228,79 @@ export const editCell = async (db: Db, meta: TableMeta, id: string, column: stri
       subjectKind: "cell",
       subjectId: `${meta.name}.${id}.${column}`,
       detailJson: { old: row[column], new: next },
+      by,
+    }),
+  ])
+}
+
+const HOUR = 3_600_000
+
+/** An entity that can still be acted on; a missing or merged one is an Error naming it. */
+const liveEntity = async (db: Db, id: number) => {
+  const entity = await entityById(db, id)
+  if (!entity) throw new Error(`Entity ${id} does not exist`)
+  if (entity.mergedInto !== null) throw new Error(`${entity.name} was already merged into entity ${entity.mergedInto}`)
+  return entity
+}
+
+/**
+ * Folds alias `fromId` into `intoId` in one batch with the audit row: the alias's story links are copied to the target
+ * and kept, the target's seen range widens to cover it, and the alias and its own aliases point at the target, since
+ * the fold follows `mergedInto` one level. Then the target's story count, and its rollups over the alias's hours, are
+ * recounted. No row is deleted.
+ */
+export const mergeEntity = async (db: Db, fromId: number, intoId: number, by: string, now = Date.now()) => {
+  if (fromId === intoId) throw new Error("An entity cannot be merged into itself")
+  const [from, into] = await Promise.all([liveEntity(db, fromId), liveEntity(db, intoId)])
+  await runBatch(db, [
+    db
+      .insert(storyEntities)
+      .select(
+        db
+          .select({
+            storyId: storyEntities.storyId,
+            entityId: sql<number>`${intoId}`.as("entity_id"),
+            firstSeen: storyEntities.firstSeen,
+          })
+          .from(storyEntities)
+          .where(eq(storyEntities.entityId, fromId)),
+      )
+      .onConflictDoNothing(),
+    db
+      .update(entities)
+      .set({
+        firstSeen: sql`min(${entities.firstSeen}, ${from.firstSeen})`,
+        lastSeen: sql`max(${entities.lastSeen}, ${from.lastSeen})`,
+      })
+      .where(eq(entities.id, intoId)),
+    db
+      .update(entities)
+      .set({ mergedInto: intoId })
+      .where(or(eq(entities.id, fromId), eq(entities.mergedInto, fromId))),
+    recordAction(db, {
+      kind: "entity_merge",
+      subjectKind: "entity",
+      subjectId: String(fromId),
+      detailJson: { into: intoId, fromKey: from.key, intoKey: into.key },
+      by,
+    }),
+  ])
+  await refreshEntityCounts(db, [intoId])
+  const hour = (ms: number) => Math.floor(ms / HOUR) * HOUR
+  await refreshEntityRollups(db, [intoId], hour(from.firstSeen), hour(from.lastSeen) + HOUR, now)
+}
+
+/** The display name only; the key stays, so the fold keeps finding the entity. The audit row keeps the old name. */
+export const renameEntity = async (db: Db, id: number, name: string, by: string) => {
+  const entity = await liveEntity(db, id)
+  if (entity.name === name) return
+  await runBatch(db, [
+    db.update(entities).set({ name }).where(eq(entities.id, id)),
+    recordAction(db, {
+      kind: "entity_rename",
+      subjectKind: "entity",
+      subjectId: String(id),
+      detailJson: { from: entity.name, to: name },
       by,
     }),
   ])

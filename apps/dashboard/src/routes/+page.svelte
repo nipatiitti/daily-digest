@@ -1,15 +1,55 @@
 <script lang="ts">
 import { DASHBOARD } from "@digest/core"
-import { Sparkline, TrendChart } from "#lib/charts/index.ts"
-import { Delta, FactRow, Readout, SegmentedControl, StoryCard, streamSlot } from "#lib/components/index.ts"
+import { Sparkline, type Stream, TrendChart } from "#lib/charts/index.ts"
+import {
+  Delta,
+  FactRow,
+  Readout,
+  SegmentedControl,
+  SeriesPicker,
+  StoryCard,
+  streamSlot,
+} from "#lib/components/index.ts"
 import { parseRange, RANGES } from "#lib/range.ts"
 import { page } from "$app/state"
-import { opsStrip, readouts, streamSeries, topStories } from "./brief.remote.ts"
+import { opsStrip, readouts, seriesFor, streamSeries, topStories } from "./brief.remote.ts"
+import { entitySearch } from "./entities/entities.remote.ts"
 
 type Top = Awaited<ReturnType<typeof topStories>>
 
-const range = $derived(parseRange(page.url.searchParams.get("range")))
-const ranges = RANGES.map((r) => ({ value: r, label: r === "all" ? "All" : r, href: `?range=${r}` }))
+const params = $derived(page.url.searchParams)
+const range = $derived(parseRange(params.get("range")))
+/** Entity keys picked for the big chart, from `?s=entity:<key>`. */
+const picks = $derived(
+  [
+    ...new Set(
+      params
+        .getAll("s")
+        .filter((s) => s.startsWith("entity:"))
+        .map((s) => s.slice("entity:".length)),
+    ),
+  ].slice(0, DASHBOARD.seriesPickerMax),
+)
+/** Picked series take colour slots 5 to 8, after the four streams. */
+const slot = (i: number) => (5 + i) as Stream
+type Line = { name: string; stream: Stream; values: number[] }
+/** The streams, then each known pick in its slot; the chart keys lines by name, so a repeated name gets the key. */
+const withPicks = (lines: Line[], picked: ({ key: string; name: string; values: number[] } | null)[]) => {
+  const all = [...lines]
+  for (const [i, s] of picked.entries()) {
+    if (!s) continue
+    const name = all.some((l) => l.name === s.name) ? `${s.name} (${s.key})` : s.name
+    all.push({ name, stream: slot(i), values: s.values })
+  }
+  return all
+}
+const ranges = $derived(
+  RANGES.map((r) => {
+    const next = new URLSearchParams(page.url.search)
+    next.set("range", r)
+    return { value: r, label: r === "all" ? "All" : r, href: `?${next}` }
+  }),
+)
 const today = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "UTC" }).format(new Date())
 </script>
 
@@ -82,16 +122,24 @@ const today = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "U
 
   <section class="grid gap-4 rounded-lg border border-line bg-surface p-6 shadow-sm">
     <svelte:boundary pending={loading} {failed}>
-      {@const chart = await streamSeries(range)}
+      {@const [chart, picked] = await Promise.all([
+        streamSeries(range),
+        Promise.all(picks.map((key) => seriesFor({ kind: "entity", key, range }))),
+      ])}
       {@const title = `Articles per ${chart.bucket} by stream`}
       <h2 class="dd-label">{title}</h2>
       <TrendChart
         labels={chart.labels}
-        series={chart.series}
+        series={withPicks(chart.series, picked)}
         projectFrom={chart.projectFrom}
         height={DASHBOARD.chartHeight}
         {title}
         href={(i) => chart.hrefs[i] ?? "/stories"}
+      />
+      <SeriesPicker
+        chosen={picks.map((key, i) => ({ key, name: picked[i]?.name ?? key, stream: slot(i) }))}
+        max={DASHBOARD.seriesPickerMax}
+        search={entitySearch}
       />
     </svelte:boundary>
   </section>
