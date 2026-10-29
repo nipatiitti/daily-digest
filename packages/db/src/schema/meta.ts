@@ -71,6 +71,7 @@ const LINKS: Record<string, LinkKind> = {
   replyToDeliveryId: "deliveries",
   digestDate: "digests",
   cveId: "vulns",
+  llmCallId: "llm_calls",
 }
 
 /** Where a column name links elsewhere in one table than in the rest. */

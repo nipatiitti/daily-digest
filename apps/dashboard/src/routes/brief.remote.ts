@@ -18,6 +18,7 @@ import {
   entityList,
   evaluationSlices,
   firstDeskBucket,
+  latestBrief as newestBrief,
   opsCounts,
   previousDigestSentAt,
   type RollupKind,
@@ -60,6 +61,12 @@ const trend = (rows: { slice: number; n: number }[], n: number, compare: boolean
   const value = sum(spark)
   return { value, spark, delta: compare ? momentum({ recent: value, previous: sum(all.slice(0, n)) }) : undefined }
 }
+
+/** The newest hourly brief's time and text, or null before the first. */
+export const latestBrief = query(async () => {
+  const b = await newestBrief(db())
+  return b && { at: b.at, text: b.text }
+})
 
 /**
  * The four headline numbers over complete hours, each with a spark over the current window and, except for "all", a

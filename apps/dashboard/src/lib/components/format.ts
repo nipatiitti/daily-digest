@@ -1,3 +1,5 @@
+import { sanitizeUserText } from "@digest/core"
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 const pad2 = (n: number) => String(n).padStart(2, "0")
 
@@ -30,3 +32,16 @@ export const byKeyBucket = (rows: { key: string; bucket: number; articles: numbe
 
 /** "SIG-0412". */
 export const padId = (prefix: string, id: number) => `${prefix}-${String(id).padStart(4, "0")}`
+
+/**
+ * Model text cut at its SIG-0412 and STY-1234 ids, each id with the signal or story page it links to (`href` null
+ * for plain text), after the forbidden glyphs are dropped.
+ */
+export const idSegments = (text: string) =>
+  sanitizeUserText(text)
+    .split(/\b((?:SIG|STY)-\d{4,})\b/)
+    .map((part, i) => ({
+      text: part,
+      // split puts the captured ids at the odd indexes.
+      href: i % 2 ? `/${part.startsWith("SIG") ? "signals" : "stories"}/${Number(part.slice(4))}` : null,
+    }))

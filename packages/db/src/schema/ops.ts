@@ -51,7 +51,17 @@ export const gateLog = sqliteTable(
   (t) => [index("gate_log_story_idx").on(t.storyId), index("gate_log_at_idx").on(t.at)],
 )
 
-export const LLM_PURPOSES = ["match", "merge", "novelty", "extraction", "writeup", "digest_edit", "theme"] as const
+export const LLM_PURPOSES = [
+  "match",
+  "merge",
+  "novelty",
+  "extraction",
+  "writeup",
+  "digest_edit",
+  "theme",
+  "brief",
+  "theme_explain",
+] as const
 export type LlmPurpose = (typeof LLM_PURPOSES)[number]
 
 export const llmCalls = sqliteTable(
@@ -70,6 +80,43 @@ export const llmCalls = sqliteTable(
     at: nowMs(),
   },
   (t) => [index("llm_calls_at_idx").on(t.at), index("llm_calls_purpose_at_idx").on(t.purpose, t.at)],
+)
+
+/** A headline number the brief was given, the one it is compared with and the change in percent (null from 0). */
+export type BriefReadout = {
+  label: string
+  value: number
+  previous: number | null
+  pct: number | null
+  /** What `previous` is, such as "the 24 hours before". */
+  against: string
+}
+
+/** A signal or story among the hour's largest 24 hour swings, as the brief was given it. */
+export type BriefMover = {
+  kind: "theme" | "story"
+  id: number
+  name: string
+  /** The story's stream, or the streams of the signal's stories. */
+  stream: string
+  momentum24h: number
+  articles24h: number
+  /** The signal's story count; null for a story. */
+  stories: number | null
+}
+
+/** The hourly brief on the front page, with the numbers it was written from. */
+export const briefs = sqliteTable(
+  "briefs",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    at: nowMs(),
+    /** One paragraph naming signals and stories only by SIG-0412 and STY-1234 ids. */
+    text: text().notNull(),
+    moversJson: text({ mode: "json" }).$type<{ readouts: BriefReadout[]; movers: BriefMover[] }>().notNull(),
+    llmCallId: integer().references(() => llmCalls.id),
+  },
+  (t) => [index("briefs_at_idx").on(t.at)],
 )
 
 export const ACTION_KINDS = [

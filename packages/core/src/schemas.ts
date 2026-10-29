@@ -117,3 +117,26 @@ export const ThemeCreate = z.discriminatedUnion("action", [
 ])
 
 export type ThemeCreate = z.infer<typeof ThemeCreate>
+
+/** One sentence on why a signal moved, shown under its name. */
+const ThemeLine = z
+  .string()
+  .min(1)
+  .max(240)
+  .regex(THEME_DESCRIPTION)
+  .describe("One sentence on what the signal's stories report now, with no ids, counts or percentages")
+
+/** Haiku's hourly brief: one paragraph naming subjects only by the ids it was given, and a line per moving signal. */
+export const Brief = z.object({
+  text: z.string().min(1).max(1200).regex(THEME_DESCRIPTION).describe("One paragraph of two to five sentences"),
+  themeLines: z.array(
+    z.object({ themeId: z.number().int().describe("The number in a SIG id given, 412 for SIG-0412"), line: ThemeLine }),
+  ),
+})
+
+export type Brief = z.infer<typeof Brief>
+
+/** Haiku's explanation of one signal whose momentum moved. */
+export const ThemeExplain = z.object({ line: ThemeLine })
+
+export type ThemeExplain = z.infer<typeof ThemeExplain>

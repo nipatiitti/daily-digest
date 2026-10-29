@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 13
+export const CONFIG_VERSION = 14
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -190,6 +190,22 @@ export const THEMES = {
   backfillDays: 14,
   /** Nearest themes Sonnet sees when naming a proposal, so it can merge a duplicate instead. */
   namingNearest: 3,
+}
+
+/** The hourly brief on the front page, and the signal explanations written after it. */
+export const BRIEF = {
+  /** Signals and stories with the largest 24 hour momentum either way that the brief is given. */
+  topMovers: 8,
+  /** Movers need this many articles in the momentum window, so 1 article becoming 2 is not a mover. */
+  moverMinArticles: 3,
+  /** A signal is explained again once its 24 hour momentum moved this many percentage points since the last time. */
+  explainBandPct: 50,
+  /** Explanations written per run, the largest swings first; the rest wait an hour. */
+  maxExplanations: 5,
+  /** Newest story titles the model sees per explained signal. */
+  explainStories: 5,
+  /** Hours of briefs on one page of the history, one brief an hour. */
+  historyHours: 48,
 }
 
 /** Holt linear forecast over hourly counts. */

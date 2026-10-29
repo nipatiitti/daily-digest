@@ -5,6 +5,8 @@ import {
   Delta,
   FactRow,
   fmtInt,
+  fmtTime,
+  idSegments,
   padId,
   Readout,
   SegmentedControl,
@@ -15,7 +17,16 @@ import {
 } from "#lib/components/index.ts"
 import { parseRange, RANGES } from "#lib/range.ts"
 import { page } from "$app/state"
-import { network, opsStrip, readouts, seriesFor, seriesSearch, streamSeries, topStories } from "./brief.remote.ts"
+import {
+  latestBrief,
+  network,
+  opsStrip,
+  readouts,
+  seriesFor,
+  seriesSearch,
+  streamSeries,
+  topStories,
+} from "./brief.remote.ts"
 import { signalBoard } from "./signals/signals.remote.ts"
 
 type Top = Awaited<ReturnType<typeof topStories>>
@@ -101,9 +112,29 @@ const today = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "U
 
 <div class="grid gap-10 pt-8">
   <header class="flex flex-wrap items-end justify-between gap-6">
-    <div class="grid gap-2">
+    <div class="grid max-w-prose gap-2">
       <h1 class="dd-display">{today}</h1>
-      <p class="text-ink-muted">The hourly brief appears here once the loop has run.</p>
+      <svelte:boundary pending={loading} {failed}>
+        {@const brief = await latestBrief()}
+        {#if brief}
+          <!-- Svelte trims the whitespace around each block's content, so ids and text join as written. -->
+          <p class="dd-body text-pretty">
+            {#each idSegments(brief.text) as s, i (i)}
+              {#if s.href}
+                <a href={s.href} class="font-mono hover:underline">{s.text}</a>
+              {:else}
+                {s.text}
+              {/if}
+            {/each}
+          </p>
+          <p class="dd-body-sm flex flex-wrap gap-x-6 text-ink-muted">
+            <span>Brief at <time datetime={new Date(brief.at).toISOString()}>{fmtTime(brief.at)}</time></span>
+            <a href="/briefs" class="hover:text-ink">Earlier briefs</a>
+          </p>
+        {:else}
+          <p class="text-ink-muted">No brief yet</p>
+        {/if}
+      </svelte:boundary>
     </div>
     <SegmentedControl label="Time range" options={ranges} value={range} />
   </header>

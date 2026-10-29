@@ -28,9 +28,12 @@ working rules.
 ```text
 apps/
   pipeline/     Worker: minute cron, fetch-q + process-q consumers, StoryEval + Digest Workflows, maintenance cron
-                hourly loop: rollups, entities (fold extraction names into `entities` + `story_entities`), themes, momentum
+                hourly loop: rollups, entities (fold extraction names into `entities` + `story_entities`), themes, momentum, brief
                 themes: embed newly extracted stories, Haiku joins each to a candidate theme or proposes one, Sonnet names or merges it,
                 then provisional themes with enough stories or score turn active and quiet ones close
+                brief: Haiku writes one paragraph into `briefs` from the readouts, the largest 24h movers (by SIG/STY id only) and
+                the previous brief, plus a line per moving signal into `themes.explanation`; signals whose momentum moved
+                `BRIEF.explainBandPct` points since their last explanation get a new one
   ingress/      Worker: grammY webhook (hooks.dd.nipatiitti.fi, outside Access)
   dashboard/    SvelteKit 3 on adapter-cloudflare (Workers Static Assets), dd.nipatiitti.fi behind Access; remote functions only, bindings from cloudflare:workers
 packages/
@@ -89,6 +92,7 @@ All apps: same pinned `compatibility_date`, `nodejs_compat`, observability on, `
 5. Dedupe via unique constraints: `articles.canonical_url`, `(source_id, guid)`, `telegram_updates.update_id`, `digests.digest_date`.
 6. `getDb(env.DB)`, `chunkedBatch()` (100 bound params per statement), typed query helpers per stage.
 7. `match_log` keeps one row per article placement (how, best candidate story and its cosine) for calibrating `MATCH`.
+8. `briefs` keeps one row per hourly brief: `at`, the text, `movers_json` (the readouts and movers it was written from) and the `llm_calls` row of the call that wrote it. The front page shows the newest, `/briefs` the history.
 
 Traps:
 - A drizzle-kit table rebuild (`__new_articles`) drops FTS triggers; follow it with a custom migration that recreates them.

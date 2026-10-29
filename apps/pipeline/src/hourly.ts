@@ -1,4 +1,5 @@
 import type { Db } from "@digest/db"
+import { briefStep } from "./hourly/brief.ts"
 import { entitiesStep } from "./hourly/entities.ts"
 import { momentumStep } from "./hourly/momentum.ts"
 import { rollupStep } from "./hourly/rollups.ts"
@@ -14,6 +15,7 @@ export const runHourly = async (env: Env, db: Db, llm: ReturnType<typeof llmFor>
     { name: "entities", run: () => entitiesStep(db, now) },
     { name: "themes", run: () => themesStep(env, db, llm, now) },
     { name: "momentum", run: () => momentumStep(db, now) },
+    { name: "brief", run: () => briefStep(db, llm, now) },
   ]
   for (const step of steps) {
     const started = Date.now()

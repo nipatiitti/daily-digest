@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod"
-import { type Db, type LlmPurpose, recordLlmCall, spendSince } from "@digest/db"
+import { type Db, type LlmPurpose, llmCalls, recordLlmCall, spendSince } from "@digest/db"
 import type { z } from "zod"
 import { estimateCostUsd, type ModelId } from "./models.ts"
 
@@ -39,7 +39,10 @@ const startOfUtcDay = (now: number) => now - (now % 86_400_000)
 export const createLlm = (o: LlmOptions) => {
   const client = new Anthropic({ apiKey: o.apiKey, baseURL: o.baseURL, maxRetries: 2 })
 
-  const structured = async <T extends z.ZodType>(c: StructuredCall<T>): Promise<z.infer<T>> => {
+  /** The parsed output with the id of the `llm_calls` row logged for it, for rows that cite the call. */
+  const structuredCall = async <T extends z.ZodType>(
+    c: StructuredCall<T>,
+  ): Promise<{ value: z.infer<T>; callId: number | null }> => {
     const now = Date.now()
     const spent = await spendSince(o.db, startOfUtcDay(now))
     const cap = o.dailyCapUsd * (c.capMultiplier ?? 1)
@@ -65,7 +68,7 @@ export const createLlm = (o: LlmOptions) => {
         invalid = `${res.stop_reason}: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300)
       }
     }
-    await recordLlmCall(o.db, {
+    const [call] = await recordLlmCall(o.db, {
       purpose: c.purpose,
       model: c.model,
       storyId: c.storyId ?? null,
@@ -78,16 +81,19 @@ export const createLlm = (o: LlmOptions) => {
         : invalid
           ? `invalid:${invalid}`
           : null,
-    })
+    }).returning({ id: llmCalls.id })
     if (refused) throw new LlmRefusal(res.stop_details?.category ?? null)
     if (invalid !== null) throw new Error(`structured output did not validate: ${invalid}`)
-    return parsed as z.infer<T>
+    return { value: parsed as z.infer<T>, callId: call?.id ?? null }
   }
+
+  const structured = async <T extends z.ZodType>(c: StructuredCall<T>): Promise<z.infer<T>> =>
+    (await structuredCall(c)).value
 
   /** Today's spend so far in USD, for the degradation rules in the brief. */
   const spentToday = () => spendSince(o.db, startOfUtcDay(Date.now()))
 
-  return { structured, spentToday, dailyCapUsd: o.dailyCapUsd }
+  return { structured, structuredCall, spentToday, dailyCapUsd: o.dailyCapUsd }
 }
 
 export type Llm = ReturnType<typeof createLlm>
