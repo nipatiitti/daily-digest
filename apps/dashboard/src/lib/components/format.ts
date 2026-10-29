@@ -1,0 +1,26 @@
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+const pad2 = (n: number) => String(n).padStart(2, "0")
+
+/** Day and short month in UTC: "27 Oct". */
+export const fmtDate = (ms: number) => {
+  const d = new Date(ms)
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`
+}
+
+/** "06:12Z" when `ms` falls on the same UTC day as `now`, else "26 Oct 06:12Z". */
+export const fmtTime = (ms: number, now = Date.now()) => {
+  const d = new Date(ms)
+  const time = `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}Z`
+  const sameDay = d.toISOString().slice(0, 10) === new Date(now).toISOString().slice(0, 10)
+  return sameDay ? time : `${fmtDate(ms)} ${time}`
+}
+
+/** Rounded integer, thousands split by a thin space, negatives with a true minus sign. */
+export const fmtInt = (n: number) => {
+  const r = Math.round(n)
+  const digits = String(Math.abs(r)).replace(/\B(?=(\d{3})+(?!\d))/g, " ")
+  return r < 0 ? `−${digits}` : digits
+}
+
+/** "SIG-0412". */
+export const padId = (prefix: string, id: number) => `${prefix}-${String(id).padStart(4, "0")}`

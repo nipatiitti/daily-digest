@@ -1,0 +1,15 @@
+{
+  "name": "@digest/design",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./tokens.css": "./tokens.css",
+    "./tokens.json": "./tokens.json"
+  },
+  "scripts": {
+    "build": "node build-tokens.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2"
+  }
+}
