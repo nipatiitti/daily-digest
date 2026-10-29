@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 6
+export const CONFIG_VERSION = 7
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -172,4 +172,8 @@ export const DASHBOARD = {
   storyPageRows: 200,
   /** The story page's articles per hour chart shows at most this many days. */
   storyChartDays: 14,
+  /** Rows in one CSV download from the table browser. */
+  exportMaxRows: 10_000,
+  /** Rows per page in the table browser. */
+  browsePageSize: 100,
 }

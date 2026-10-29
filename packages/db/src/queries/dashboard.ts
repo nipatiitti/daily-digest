@@ -1,21 +1,28 @@
 import {
   and,
+  asc,
   type Column,
   desc,
   eq,
   getTableColumns,
+  gt,
   gte,
   inArray,
   isNotNull,
   isNull,
   like,
   lt,
+  lte,
+  or,
+  type SQL,
   sql,
 } from "drizzle-orm"
-import type { Db } from "../client.ts"
+import { type Db, runBatch } from "../client.ts"
 import {
   actions,
   articles,
+  coerce,
+  columnOf,
   dbStats,
   deliveries,
   facts,
@@ -26,10 +33,14 @@ import {
   matchLog,
   type RollupKind,
   rollups,
+  rowId,
+  rowWhere,
   signals,
   sources,
   stories,
   storyVulns,
+  TABLES,
+  type TableMeta,
   vulns,
 } from "../schema/index.ts"
 import { spendSince } from "./ops.ts"
@@ -266,4 +277,115 @@ export const articleDetail = async (db: Db, id: number) => {
     .leftJoin(stories, eq(stories.id, articles.storyId))
     .where(eq(articles.id, id))
   return row ?? null
+}
+
+/** Row counts for the data index, one `count(*)` per table in one batch; articles and llm_calls are the slow scans. */
+export const tableCounts = async (db: Db) => {
+  const counts = await runBatch(
+    db,
+    TABLES.map((t) => db.select({ n: sql<number>`count(*)` }).from(t.table)),
+  )
+  return TABLES.map((t, i) => ({ name: t.name, rows: (counts[i] as { n: number }[] | undefined)?.[0]?.n ?? 0 }))
+}
+
+export type BrowseFilter = { column: string; op: "eq" | "contains" | "gte" | "lte"; value: string }
+
+/** The table browser's view: filters and the FTS match `q` narrow, the primary key breaks ties in the sort. */
+export type BrowseQuery = { filters: BrowseFilter[]; sort: { column?: string; dir: "asc" | "desc" }; q?: string }
+
+type Row = Record<string, unknown>
+
+/** With the FTS match, a four-column keyset and the limit, a page query stays under MAX_PARAMS. */
+const MAX_FILTERS = 80
+/** Rows per query when exporting. */
+const EXPORT_CHUNK = 500
+
+const COMPARE = { eq, gte, lte }
+
+const filterWhere = (meta: TableMeta, filters: BrowseFilter[]) => {
+  if (filters.length > MAX_FILTERS) throw new Error(`At most ${MAX_FILTERS} filters`)
+  return filters.map((f) => {
+    const c = columnOf(meta, f.column)
+    return f.op === "contains" ? like(c.column, `%${f.value}%`) : COMPARE[f.op](c.column, coerce(c, f.value))
+  })
+}
+
+const ftsWhere = (meta: TableMeta, q: string | undefined) => {
+  if (!q) return undefined
+  if (!meta.fts) throw new Error(`Table ${meta.name} has no text search`)
+  const fts = sql.identifier(meta.fts.table)
+  // Each word quoted, so FTS5 syntax in `q` matches as text instead of failing to parse.
+  const match = q
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => `"${w.replaceAll('"', '""')}"`)
+    .join(" ")
+  const key = columnOf(meta, meta.primaryKey[0] ?? "").column
+  return sql`${key} in (select rowid from ${fts} where ${fts} match ${match})`
+}
+
+/** The sort column, then the primary key columns it leaves out, so the order is total and a row can resume it. */
+const orderOf = (meta: TableMeta, { column }: BrowseQuery["sort"]) =>
+  (column ? [column, ...meta.primaryKey.filter((k) => k !== column)] : meta.primaryKey).map((k) => columnOf(meta, k))
+
+/**
+ * Rows after the cursor's values in `cols` order. SQLite sorts nulls first ascending and last descending; only the
+ * sort column can be null, every later column is part of the primary key.
+ */
+const keysetAfter = (cols: Column[], vals: unknown[], dir: "asc" | "desc"): SQL | undefined => {
+  const [c, ...restCols] = cols
+  if (!c) return undefined
+  const [v, ...restVals] = vals
+  const rest = keysetAfter(restCols, restVals, dir)
+  if (v === null) return dir === "asc" ? or(and(isNull(c), rest), isNotNull(c)) : and(isNull(c), rest)
+  return or((dir === "asc" ? gt : lt)(c, v), rest && and(eq(c, v), rest), dir === "desc" ? isNull(c) : undefined)
+}
+
+const browseRows = async (db: Db, meta: TableMeta, query: BrowseQuery, cursor: Row | null, limit: number) => {
+  const order = orderOf(meta, query.sort)
+  const by = query.sort.dir === "asc" ? asc : desc
+  const after = cursor
+    ? keysetAfter(
+        order.map((c) => c.column),
+        order.map((c) => cursor[c.name]),
+        query.sort.dir,
+      )
+    : undefined
+  const rows: Row[] = await db
+    .select()
+    .from(meta.table)
+    .where(and(...filterWhere(meta, query.filters), ftsWhere(meta, query.q), after))
+    .orderBy(...order.map((c) => by(c.column)))
+    .limit(limit)
+  return rows
+}
+
+/** One row by its row ID (see rowId), or null. */
+export const rowById = async (db: Db, meta: TableMeta, id: string) => {
+  const [row] = await db.select().from(meta.table).where(rowWhere(meta, id)).limit(1)
+  return (row as Row | undefined) ?? null
+}
+
+/**
+ * A page of the table browser: keyset paging after the row ID `after`, in the sort column then the primary key. `next`
+ * is the row ID to pass as `after` for the following page, null on the last one.
+ */
+export const browseTable = async (db: Db, meta: TableMeta, opts: BrowseQuery & { after?: string; limit: number }) => {
+  const cursor = opts.after === undefined ? null : await rowById(db, meta, opts.after)
+  if (opts.after !== undefined && !cursor) throw new Error(`No ${meta.name} row ${opts.after} to page after`)
+  const rows = await browseRows(db, meta, opts, cursor, opts.limit + 1)
+  const last = rows.length > opts.limit ? rows[opts.limit - 1] : undefined
+  return { rows: rows.slice(0, opts.limit), next: last ? rowId(meta, last) : null }
+}
+
+/** Every row the browser would page through for `query`, up to `max`, in chunks for a streamed export. */
+export async function* exportRows(db: Db, meta: TableMeta, query: BrowseQuery, max: number) {
+  let cursor: Row | null = null
+  for (let left = max; left > 0; ) {
+    const rows = await browseRows(db, meta, query, cursor, Math.min(EXPORT_CHUNK, left))
+    yield rows
+    left -= rows.length
+    cursor = rows.at(-1) ?? null
+    if (rows.length < EXPORT_CHUNK) return
+  }
 }

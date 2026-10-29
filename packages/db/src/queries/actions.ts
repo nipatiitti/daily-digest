@@ -1,6 +1,19 @@
 import { eq } from "drizzle-orm"
 import { type Db, runBatch } from "../client.ts"
-import { actions, articles, type FactStatus, facts, follows, sources, stories } from "../schema/index.ts"
+import {
+  actions,
+  articles,
+  coerce,
+  columnOf,
+  type FactStatus,
+  facts,
+  follows,
+  rowWhere,
+  sources,
+  stories,
+  type TableMeta,
+} from "../schema/index.ts"
+import { rowById } from "./dashboard.ts"
 import { getStory, mergeStories, setFactStatus } from "./stories.ts"
 
 /** The audit row for a dashboard write, returned unrun so the caller batches it with the write. */
@@ -123,4 +136,26 @@ export const newStoryFromArticle = async (db: Db, articleId: number, by: string)
     }),
   ])
   return { storyId: created.id, from: a.storyId }
+}
+
+/** One cell of a column the registry marks editable, coerced by its kind; the audit row keeps the old and new value. */
+export const editCell = async (db: Db, meta: TableMeta, id: string, column: string, value: string, by: string) => {
+  if (!meta.editable.includes(column)) throw new Error(`${meta.name}.${column} is not editable`)
+  const next = coerce(columnOf(meta, column), value)
+  const row = await rowById(db, meta, id)
+  if (!row) throw new Error(`No ${meta.name} row ${id}`)
+  if (row[column] === next) return
+  await runBatch(db, [
+    db
+      .update(meta.table)
+      .set({ [column]: next })
+      .where(rowWhere(meta, id)),
+    recordAction(db, {
+      kind: "edit",
+      subjectKind: "cell",
+      subjectId: `${meta.name}.${id}.${column}`,
+      detailJson: { old: row[column], new: next },
+      by,
+    }),
+  ])
 }
