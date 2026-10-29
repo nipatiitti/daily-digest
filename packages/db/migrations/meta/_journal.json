@@ -22,6 +22,13 @@
       "when": 1793258485438,
       "tag": "0002_pink_cammi",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793258860107,
+      "tag": "0003_thankful_vector",
+      "breakpoints": true
     }
   ]
 }

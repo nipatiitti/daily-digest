@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 2
+export const CONFIG_VERSION = 3
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -132,4 +132,16 @@ export const HOURLY = {
   recomputeBuckets: 3,
   /** Momentum compares the last N complete hours with the N before: short is momentum_24h, long is momentum_7d. */
   momentumWindows: { short: 24, long: 168 },
+}
+
+/** Holt linear forecast over hourly counts. */
+export const FORECAST = {
+  /** Level smoothing: higher follows the latest hour more closely. */
+  alpha: 0.5,
+  /** Trend smoothing: higher reacts faster to a change in slope. */
+  beta: 0.3,
+  /** Hours forecast ahead. */
+  horizonHours: 24,
+  /** Hours of history fed to the forecast. */
+  historyHours: 72,
 }

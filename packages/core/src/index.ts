@@ -1,6 +1,7 @@
 export * from "./config.ts"
 export * from "./feed.ts"
 export * from "./filter.ts"
+export * from "./forecast.ts"
 export * from "./match.ts"
 export * from "./rollup.ts"
 export * from "./schemas.ts"

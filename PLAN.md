@@ -86,6 +86,7 @@ All apps: same pinned `compatibility_date`, `nodejs_compat`, observability on, `
 4. Integer PKs for `articles`, `stories`, `facts`, `deliveries` (rowid alias for FTS5, short `callback_data`). Timestamps as unix ms; `*_json` columns as typed `text({ mode: "json" })`.
 5. Dedupe via unique constraints: `articles.canonical_url`, `(source_id, guid)`, `telegram_updates.update_id`, `digests.digest_date`.
 6. `getDb(env.DB)`, `chunkedBatch()` (100 bound params per statement), typed query helpers per stage.
+7. `match_log` keeps one row per article placement (how, best candidate story and its cosine) for calibrating `MATCH`.
 
 Traps:
 - A drizzle-kit table rebuild (`__new_articles`) drops FTS triggers; follow it with a custom migration that recreates them.

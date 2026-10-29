@@ -231,8 +231,7 @@ export class StoryEval extends WorkflowEntrypoint<Env, StoryEvalParams> {
         worldScale: extraction.rubric.severity,
         independentOrigins: story.independentOrigins,
         authoritativeCount: story.authoritativeCount,
-        // origins_30m is not tracked yet; origins_6h is the available stand-in (calibrate).
-        origins30m: story.origins6h,
+        origins30m: story.origins30m,
         injectionOnlyAuthority:
           authoritativeArticles.length > 0 && authoritativeArticles.every((a) => suspects.has(a.id)),
       })

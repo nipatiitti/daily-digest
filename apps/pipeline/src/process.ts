@@ -17,6 +17,8 @@ import {
   type Db,
   getStoryExtractionHash,
   logGate,
+  logMatch,
+  type MatchHow,
   neighbourAssignments,
   type ProcessArticle,
   refreshStoryCounters,
@@ -94,7 +96,13 @@ const neighbours = async (
   return result
 }
 
-type Placement = { storyId: number | null; originId: number | null; how: string }
+type Placement = {
+  storyId: number | null
+  originId: number | null
+  how: MatchHow
+  candidateStoryId: number | null
+  cosine: number | null
+}
 
 const place = async (
   db: Db,
@@ -108,7 +116,8 @@ const place = async (
     .filter((n) => n.score >= MATCH.copyCosine || titleJaccard(n.title, article.title) >= MATCH.copyTitleJaccard)
     .sort((a, b) => b.score - a.score)[0]
   if (copy?.storyId !== null && copy?.storyId !== undefined) {
-    return { storyId: copy.storyId, originId: copy.originId ?? copy.id, how: "copy" }
+    const { storyId, score } = copy
+    return { storyId, originId: copy.originId ?? copy.id, how: "copy", candidateStoryId: storyId, cosine: score }
   }
 
   // 2. Best story by the most similar member, after the same-source penalty.
@@ -126,16 +135,16 @@ const place = async (
   const ranked = [...byStory.entries()].sort((a, b) => b[1] - a[1])
   const best = ranked[0]
   const decision = decideMatch(best?.[1] ?? null)
-  if (!best || decision === "new") return { storyId: null, originId: null, how: "new" }
-  if (decision === "join")
-    return { storyId: best[0], originId: null, how: cveStories.includes(best[0]) ? "cve" : "join" }
+  const candidate = { originId: null, candidateStoryId: best?.[0] ?? null, cosine: best?.[1] ?? null }
+  if (!best || decision === "new") return { ...candidate, storyId: null, how: "new" }
+  if (decision === "join") return { ...candidate, storyId: best[0], how: cveStories.includes(best[0]) ? "cve" : "join" }
+  const fallback = (): Placement =>
+    best[1] >= MATCH.fallbackCosine
+      ? { ...candidate, storyId: best[0], how: "join-fallback" }
+      : { ...candidate, storyId: null, how: "new-fallback" }
 
   // 4. The ask band.
-  if (!llm) {
-    return best[1] >= MATCH.fallbackCosine
-      ? { storyId: best[0], originId: null, how: "join-fallback" }
-      : { storyId: null, originId: null, how: "new-fallback" }
-  }
+  if (!llm) return fallback()
   const [story] = await storiesBrief(db, [best[0]])
   const titles = near.filter((n) => n.storyId === best[0]).map((n) => n.title)
   try {
@@ -145,15 +154,11 @@ const place = async (
       { title: story?.title ?? titles[0] ?? "", articleTitles: titles.slice(0, 5) },
       best[0],
     )
-    return same
-      ? { storyId: best[0], originId: null, how: "ask-yes" }
-      : { storyId: null, originId: null, how: "ask-no" }
+    return same ? { ...candidate, storyId: best[0], how: "ask-yes" } : { ...candidate, storyId: null, how: "ask-no" }
   } catch (e) {
     if (e instanceof SpendCapError || e instanceof LlmRefusal) {
       log("match_ask_skipped", { articleId: article.id, error: String(e) })
-      return best[1] >= MATCH.fallbackCosine
-        ? { storyId: best[0], originId: null, how: "join-fallback" }
-        : { storyId: null, originId: null, how: "new-fallback" }
+      return fallback()
     }
     throw e
   }
@@ -186,6 +191,7 @@ export const processArticles = async (env: ProcessEnv, db: Db, llm: Llm | null, 
   )
 
   const done: Done[] = []
+  const matches: Parameters<typeof logMatch>[1] = []
   const touched = new Set<number>()
   for (const [i, article] of rows.entries()) {
     const vector = vectors[i]
@@ -199,8 +205,10 @@ export const processArticles = async (env: ProcessEnv, db: Db, llm: Llm | null, 
     await assignArticle(db, article.id, { storyId, originId: p.originId, cveIds, embeddedAt: now })
     done.push({ article, vector, storyId, originId: p.originId })
     touched.add(storyId)
+    matches.push({ articleId: article.id, storyId, how: p.how, cosine: p.cosine, candidateStoryId: p.candidateStoryId })
     log("matched", { articleId: article.id, storyId, how: p.how, nearest: Math.max(0, ...near.map((n) => n.score)) })
   }
+  await logMatch(db, matches)
 
   await env.VECTORS.upsert(
     done.map((d) => ({
