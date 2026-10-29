@@ -7,10 +7,11 @@ import type { RequestHandler } from "./$types"
 
 /**
  * RFC 4180: a field with a comma, quote or line break is quoted, its quotes doubled. Text a spreadsheet would read
- * as a formula gets a leading quote; numbers are left as they are.
+ * as a formula gets a leading quote; numbers are left as they are. A vector is left empty.
  */
 const field = (v: unknown) => {
-  const raw = v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v)
+  const raw =
+    v === null || v === undefined || ArrayBuffer.isView(v) ? "" : typeof v === "object" ? JSON.stringify(v) : String(v)
   const s = typeof v !== "number" && /^[=+\-@]/.test(raw) ? `'${raw}` : raw
   return /[",\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s
 }

@@ -68,14 +68,17 @@ export const FactLabels = z.object({
 
 export type FactLabels = z.infer<typeof FactLabels>
 
-/** A theme name word: letters and digits, full stops and hyphens only inside, as in "Node.js" or "Zero-day". */
-const NAME_WORD = String.raw`[\p{L}\p{N}](?:[\p{L}\p{N}'’&+/]|[.\-](?=[\p{L}\p{N}]))*`
+/**
+ * A theme name word: letters and digits, full stops and hyphens inside, as in "Node.js" or "Zero-day", and a final
+ * full stop only after a capital, as in "U.S.". Escapes keep the pattern ASCII, since the SDK shows it to the model.
+ */
+const NAME_WORD = String.raw`[\p{L}\p{N}](?:[\p{L}\p{N}'\u{2019}&+/]|[.\-](?=[\p{L}\p{N}]))*(?:(?<=\p{Lu})\.)?`
 
-/** Two to four words, the first capitalised; no dashes, bullets, other punctuation or trailing full stop. */
-export const THEME_NAME = new RegExp(String.raw`^(?=[\p{Lu}\p{N}])${NAME_WORD}(?: ${NAME_WORD}){1,3}$`, "u")
+/** Two to four words; no dashes, bullets, other punctuation or trailing full stop. */
+export const THEME_NAME = new RegExp(`^${NAME_WORD}(?: ${NAME_WORD}){1,3}$`, "u")
 
-/** No line breaks, en or em dashes, bullets, middots or pipes. */
-const THEME_DESCRIPTION = /^[^\n‒-―•·|]+$/u
+/** No line breaks, figure, en or em dashes, horizontal bars, bullets, middots or pipes. */
+const THEME_DESCRIPTION = /^[^\n\u{2012}-\u{2015}\u{2022}\xB7\x7C]+$/u
 
 const ThemeName = z
   .string()

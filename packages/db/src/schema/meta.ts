@@ -25,7 +25,7 @@ export type TableName = {
   [K in keyof Schema]: Schema[K] extends SQLiteTable ? Schema[K]["_"]["name"] : never
 }[keyof Schema]
 
-export type ColumnKind = "integer" | "real" | "text" | "json" | "boolean" | "timestamp"
+export type ColumnKind = "integer" | "real" | "text" | "json" | "boolean" | "timestamp" | "blob"
 /** The table a column's value is a row ID of; its page is `/data/<table>/<id>` unless the dashboard has a better one. */
 export type LinkKind = TableName
 
@@ -107,6 +107,9 @@ const kindOf = (name: string, c: Column): ColumnKind => {
       return "json"
     case "SQLiteInteger":
       return name.endsWith("At") || TIMESTAMPS.has(name) ? "timestamp" : "integer"
+    // The only custom column is the themes embedding vector.
+    case "SQLiteCustomColumn":
+      return "blob"
     default:
       return "text"
   }
@@ -153,11 +156,15 @@ export const TABLES: TableMeta[] = [articles, delivery, entities, ops, rollups, 
 
 export const tableMeta = (name: string) => TABLES.find((t) => t.name === name)
 
-/** A column of `meta` with its Drizzle column; an Error when the table has no such column. */
+/**
+ * A column of `meta` with its Drizzle column, for a filter, sort, key or edit; an Error when the table has no such
+ * column or it is a blob, which none of those can use.
+ */
 export const columnOf = (meta: TableMeta, name: string) => {
   const c = meta.columns.find((col) => col.name === name)
   const column = getTableColumns(meta.table)[name]
   if (!c || !column) throw new Error(`Table ${meta.name} has no column ${name}`)
+  if (c.kind === "blob") throw new Error(`${meta.name}.${name} is binary and cannot be filtered, sorted or edited`)
   return { ...c, column }
 }
 

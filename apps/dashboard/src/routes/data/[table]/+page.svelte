@@ -82,6 +82,8 @@ const apply = (e: SubmitEvent & { currentTarget: HTMLFormElement }) => {
                 <option value={v} selected={params.get(`${c.name}.eq`) === v}>{v}</option>
               {/each}
             </select>
+          {:else if c.kind === "blob"}
+            <span class="dd-label text-ink-subtle">Binary</span>
           {:else if c.kind === "text" || c.kind === "json"}
             <input
               name="{c.name}.contains"

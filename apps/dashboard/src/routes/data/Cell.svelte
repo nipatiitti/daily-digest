@@ -34,6 +34,8 @@ const href = $derived(link && `${PAGES[link] ?? `/data/${link}`}/${encodeURIComp
   <span class="dd-tick whitespace-nowrap" title={new Date(value).toISOString()}>{fmtTime(value, 0)}</span>
 {:else if kind === "json"}
   <span class="dd-tick">{JSON.stringify(value)}</span>
+{:else if value instanceof Float32Array}
+  <span class="text-ink-subtle">{value.length} floats</span>
 {:else}
   {String(value)}
 {/if}

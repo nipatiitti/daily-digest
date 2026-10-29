@@ -45,16 +45,26 @@ export const createLlm = (o: LlmOptions) => {
     const cap = o.dailyCapUsd * (c.capMultiplier ?? 1)
     if (spent >= cap) throw new SpendCapError(`daily spend ${spent.toFixed(2)} USD is at the cap ${cap} USD`)
 
-    const res = await client.messages.parse({
+    // create, not parse: parse throws on a failed validation before the paid call reaches `llm_calls`.
+    const format = zodOutputFormat(c.schema)
+    const res = await client.messages.create({
       model: c.model,
       max_tokens: c.maxTokens ?? 4096,
       system: c.system,
       messages: [{ role: "user", content: c.prompt }],
-      output_config: { format: zodOutputFormat(c.schema), effort: c.effort ?? "low" },
+      output_config: { format, effort: c.effort ?? "low" },
     })
 
     const refused = res.stop_reason === "refusal"
-    const parsed = refused ? null : res.parsed_output
+    let parsed: z.infer<T> | null = null
+    let invalid: string | null = null
+    if (!refused) {
+      try {
+        parsed = format.parse(res.content.find((b) => b.type === "text")?.text ?? "")
+      } catch (e) {
+        invalid = `${res.stop_reason}: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300)
+      }
+    }
     await recordLlmCall(o.db, {
       purpose: c.purpose,
       model: c.model,
@@ -65,13 +75,13 @@ export const createLlm = (o: LlmOptions) => {
       estCostUsd: estimateCostUsd(c.model, res.usage),
       validationError: refused
         ? `refusal:${res.stop_details?.category ?? "unknown"}`
-        : parsed === null
-          ? `unparsed:${res.stop_reason}`
+        : invalid
+          ? `invalid:${invalid}`
           : null,
     })
     if (refused) throw new LlmRefusal(res.stop_details?.category ?? null)
-    if (parsed === null) throw new Error(`structured output did not validate (stop_reason ${res.stop_reason})`)
-    return parsed
+    if (invalid !== null) throw new Error(`structured output did not validate: ${invalid}`)
+    return parsed as z.infer<T>
   }
 
   /** Today's spend so far in USD, for the degradation rules in the brief. */
