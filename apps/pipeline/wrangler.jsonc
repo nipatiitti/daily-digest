@@ -10,8 +10,8 @@
   "preview_urls": false,
   "observability": { "enabled": true },
   "triggers": {
-    // scheduler, daily digest (07:00 UTC), nightly maintenance
-    "crons": ["* * * * *", "0 7 * * *", "30 3 * * *"]
+    // scheduler, hourly loop (rollups, momentum), daily digest (07:00 UTC), nightly maintenance
+    "crons": ["* * * * *", "0 * * * *", "0 7 * * *", "30 3 * * *"]
   },
   "d1_databases": [
     {

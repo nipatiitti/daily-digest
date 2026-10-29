@@ -51,6 +51,8 @@ export const sources = sqliteTable(
     lastStatus: integer(),
     consecutiveFailures: integer().notNull().default(0),
     lastNewItemAt: integer(),
+    /** Articles in the last 24 hours, written hourly from rollups. */
+    items24h: integer("items_24h").notNull().default(0),
   },
   (t) => [index("sources_due_idx").on(t.enabled, t.nextPollAt)],
 )

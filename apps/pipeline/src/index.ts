@@ -1,6 +1,7 @@
 import { getDb } from "@digest/db"
 import type { DigestParams } from "./digest.ts"
 import { type FetchMessage, fetchSource } from "./fetch.ts"
+import { runHourly } from "./hourly.ts"
 import { llmFor } from "./llm.ts"
 import { runMaintenance } from "./maintenance.ts"
 import { type ProcessMessage, processArticles } from "./process.ts"
@@ -33,6 +34,11 @@ export default {
       case "* * * * *":
         await scheduleDueSources(getDb(env.DB), env.FETCH_Q as Queue<FetchMessage>, controller.scheduledTime)
         break
+      case "0 * * * *": {
+        const db = getDb(env.DB)
+        await runHourly(env, db, llmFor(env, db), controller.scheduledTime)
+        break
+      }
       case "0 7 * * *":
         await startDigest(env.DIGEST as Workflow<DigestParams>, controller.scheduledTime)
         break

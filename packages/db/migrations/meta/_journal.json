@@ -15,6 +15,13 @@
       "when": 1792920018275,
       "tag": "0001_fts",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793258485438,
+      "tag": "0002_pink_cammi",
+      "breakpoints": true
     }
   ]
 }

@@ -37,6 +37,11 @@ export const stories = sqliteTable(
     independentOrigins: integer().notNull().default(0),
     authoritativeCount: integer().notNull().default(0),
     origins6h: integer("origins_6h").notNull().default(0),
+    /** Written hourly from rollups: signed percent change in articles, null for a rise from 0. */
+    momentum24h: real("momentum_24h"),
+    momentum7d: real("momentum_7d"),
+    /** Origin articles published in the last 30 minutes, written hourly. */
+    origins30m: integer("origins_30m").notNull().default(0),
     rubricJson: text({ mode: "json" }).$type<Rubric>(),
     score: real(),
     /** Score tier; crossing one makes an update material. */

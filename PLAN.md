@@ -28,6 +28,7 @@ working rules.
 ```text
 apps/
   pipeline/     Worker: minute cron, fetch-q + process-q consumers, StoryEval + Digest Workflows, maintenance cron
+                hourly loop: rollups, momentum
   ingress/      Worker: grammY webhook (hooks.dd.nipatiitti.fi, outside Access)
   dashboard/    SvelteKit on adapter-cloudflare (Workers Static Assets), dd.nipatiitti.fi behind Access
 packages/
@@ -59,7 +60,7 @@ All apps: same pinned `compatibility_date`, `nodejs_compat`, observability on, `
 | Binding                                                                                                                                | pipeline                                                                     | ingress                                         | dashboard                          |
 | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------- | ---------------------------------- |
 | D1 `DB`                                                                                                                                | yes                                                                          | yes                                             | yes                                |
-| Crons `* * * * *` scheduler, `0 7 * * *` digest, `30 3 * * *` maintenance, `15 12 * * *` Kagi recall                                   | yes                                                                          |                                                 |                                    |
+| Crons `* * * * *` scheduler, `0 * * * *` hourly, `0 7 * * *` digest, `30 3 * * *` maintenance, `15 12 * * *` Kagi recall               | yes                                                                          |                                                 |                                    |
 | Queue `fetch-q` + `fetch-dlq` (batch 10, concurrency 5)                                                                                | produce + consume                                                            |                                                 |                                    |
 | Queue `process-q` + `process-dlq` (batch 50, 5 s timeout)                                                                              | produce + consume                                                            |                                                 |                                    |
 | Workflow `STORY_EVAL` (`StoryEval`)                                                                                                    | yes                                                                          |                                                 |                                    |

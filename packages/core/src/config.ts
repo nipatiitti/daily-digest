@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 1
+export const CONFIG_VERSION = 2
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -124,4 +124,12 @@ export const MAINTENANCE = {
   requeueWindowDays: 2,
   requeueLimit: 500,
   dbWarnBytes: [4e9, 8e9],
+}
+
+/** Hourly loop at minute 0. Windows are in hours. */
+export const HOURLY = {
+  /** Hour buckets recounted each run (the current partial hour plus the two before it), so late articles land. */
+  recomputeBuckets: 3,
+  /** Momentum compares the last N complete hours with the N before: short is momentum_24h, long is momentum_7d. */
+  momentumWindows: { short: 24, long: 168 },
 }
