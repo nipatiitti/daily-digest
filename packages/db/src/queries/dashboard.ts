@@ -771,3 +771,41 @@ export const storyNetwork = async (db: Db, o: { from: number; limit: number; max
     links: [...links.values()].map(({ shared, ...l }) => ({ ...l, weight: Math.min(o.maxWeight, shared) })),
   }
 }
+
+/** Day start of a rollup bucket; the literal keeps it integer division. */
+const rollupDay = sql<number>`(${rollups.bucket} / 86400000) * 86400000`
+
+/**
+ * The newest time a source's row shows a successful poll: a healthy poll schedules the next one an interval ahead, so
+ * the last one ran an interval before `nextPollAt`; a failing source falls back to its newest item. Null when neither.
+ */
+const lastOkAt = sql<number | null>`nullif(max(coalesce(${sources.lastNewItemAt}, 0),
+  case when ${sources.consecutiveFailures} = 0 and ${sources.lastStatus} > 0 and ${sources.lastStatus} < 400
+  then ${sources.nextPollAt} - ${sources.pollSeconds} * 1000 else 0 end), 0)`
+
+/** Every source with its poll state, and articles per source and UTC day in [from, to) (empty days are missing). */
+export const sourceList = async (db: Db, from: number, to: number) => {
+  const [rows, days] = await db.batch([
+    db
+      .select({
+        id: sources.id,
+        name: sources.name,
+        tier: sources.tier,
+        category: sources.category,
+        enabled: sources.enabled,
+        pollSeconds: sources.pollSeconds,
+        lastStatus: sources.lastStatus,
+        consecutiveFailures: sources.consecutiveFailures,
+        nextPollAt: sources.nextPollAt,
+        items24h: sources.items24h,
+        lastOkAt,
+      })
+      .from(sources),
+    db
+      .select({ key: rollups.key, bucket: rollupDay, articles: sql<number>`sum(${rollups.articles})` })
+      .from(rollups)
+      .where(and(eq(rollups.kind, "source"), gte(rollups.bucket, from), lt(rollups.bucket, to)))
+      .groupBy(rollups.key, rollupDay),
+  ])
+  return { rows, days }
+}
