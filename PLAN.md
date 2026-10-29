@@ -29,6 +29,7 @@ working rules.
 apps/
   pipeline/     Worker: minute cron, fetch-q + process-q consumers, StoryEval + Digest Workflows, maintenance cron
                 hourly loop: rollups, entities (fold extraction names into `entities` + `story_entities`), momentum
+                themes (planned): embed new stories, Haiku joins one to a candidate theme or proposes one, Sonnet names or merges it
   ingress/      Worker: grammY webhook (hooks.dd.nipatiitti.fi, outside Access)
   dashboard/    SvelteKit 3 on adapter-cloudflare (Workers Static Assets), dd.nipatiitti.fi behind Access; remote functions only, bindings from cloudflare:workers
 packages/
@@ -82,7 +83,7 @@ All apps: same pinned `compatibility_date`, `nodejs_compat`, observability on, `
 
 1. Schema in `packages/db/src/schema/`, one file per area. `drizzle.config.ts`: `dialect: "sqlite"`, `out: "./migrations"`, `d1-http` driver only for studio.
 2. `pnpm db:generate` (`drizzle-kit generate`), then `wrangler d1 migrations apply digest --local|--remote`.
-3. FTS5 via `drizzle-kit generate --custom --name=fts`: external-content `articles_fts`, `stories_fts`, `tokenize = "unicode61 remove_diacritics 2"`, `prefix = "2 3"`, plus triggers. `entities_fts` over `entities.name` the same way (`--name=entities_fts`).
+3. FTS5 via `drizzle-kit generate --custom --name=fts`: external-content `articles_fts`, `stories_fts`, `tokenize = "unicode61 remove_diacritics 2"`, `prefix = "2 3"`, plus triggers. `entities_fts` over `entities.name` the same way (`--name=entities_fts`), and `themes_fts` over `themes.name, description` (`--name=themes_fts`).
 4. Integer PKs for `articles`, `stories`, `facts`, `deliveries` (rowid alias for FTS5, short `callback_data`). Timestamps as unix ms; `*_json` columns as typed `text({ mode: "json" })`.
 5. Dedupe via unique constraints: `articles.canonical_url`, `(source_id, guid)`, `telegram_updates.update_id`, `digests.digest_date`.
 6. `getDb(env.DB)`, `chunkedBatch()` (100 bound params per statement), typed query helpers per stage.

@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 9
+export const CONFIG_VERSION = 10
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -164,6 +164,30 @@ export const ENTITIES = {
     "group",
     "holdings",
   ] as readonly string[],
+}
+
+/** Themes: stories joined hourly into named developments that span days or weeks. */
+export const THEMES = {
+  /** Candidate themes shown to Haiku per story, entity matches first. */
+  maxCandidates: 12,
+  /** Themes nearest the story's embedding by cosine that become candidates. */
+  nearestK: 10,
+  /** Entities a theme's stories must share with the story to make it a candidate. */
+  sharedEntitiesMin: 2,
+  /** A provisional theme becomes visible with this many stories... */
+  visibleStories: 2,
+  /** ...or with one story scoring at least this. */
+  visibleScore: 60,
+  /** Themes with no new story for this long are closed; a joining story reopens them. */
+  closeAfterDays: 30,
+  /** Story titles shown to the model under each candidate theme. */
+  examplesPerCandidate: 2,
+  /** Stories themed per run, the rest waiting an hour. */
+  maxStoriesPerRun: 100,
+  /** Runs re-read stories this far before the cursor, as ENTITIES does. */
+  rescanHours: 1,
+  /** The first run themes stories this far back; later runs never reach further. */
+  backfillDays: 14,
 }
 
 /** Holt linear forecast over hourly counts. */

@@ -50,6 +50,20 @@
       "when": 1793265943292,
       "tag": "0006_entities_fts",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1793274293133,
+      "tag": "0007_polite_silk_fever",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1793274294496,
+      "tag": "0008_themes_fts",
+      "breakpoints": true
     }
   ]
 }

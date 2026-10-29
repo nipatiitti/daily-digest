@@ -9,6 +9,7 @@ import * as ops from "./ops.ts"
 import * as rollups from "./rollups.ts"
 import * as sources from "./sources.ts"
 import * as stories from "./stories.ts"
+import * as themes from "./themes.ts"
 
 type Schema = typeof articles &
   typeof delivery &
@@ -16,7 +17,8 @@ type Schema = typeof articles &
   typeof ops &
   typeof rollups &
   typeof sources &
-  typeof stories
+  typeof stories &
+  typeof themes
 
 /** SQL name of every table in the schema. */
 export type TableName = {
@@ -64,6 +66,7 @@ const LINKS: Record<string, LinkKind> = {
   originId: "articles",
   sourceId: "sources",
   entityId: "entities",
+  themeId: "themes",
   deliveryId: "deliveries",
   replyToDeliveryId: "deliveries",
   digestDate: "digests",
@@ -73,6 +76,7 @@ const LINKS: Record<string, LinkKind> = {
 /** Where a column name links elsewhere in one table than in the rest. */
 const TABLE_LINKS: Partial<Record<TableName, Record<string, LinkKind>>> = {
   entities: { mergedInto: "entities" },
+  themes: { mergedInto: "themes" },
 }
 
 /** The seed owns every other source column (seed/to-sql.ts), so the dashboard only turns a feed off or on. */
@@ -90,6 +94,7 @@ const FTS: Partial<Record<TableName, TableMeta["fts"]>> = {
   articles: { table: "articles_fts", columns: ["title", "snippet"] },
   stories: { table: "stories_fts", columns: ["title", "primary_entity", "summary", "why_matters"] },
   entities: { table: "entities_fts", columns: ["name"] },
+  themes: { table: "themes_fts", columns: ["name", "description"] },
 }
 
 const kindOf = (name: string, c: Column): ColumnKind => {
@@ -141,7 +146,7 @@ const describe = (table: SQLiteTable): TableMeta => {
 }
 
 /** Every table in the schema files, by name. */
-export const TABLES: TableMeta[] = [articles, delivery, entities, ops, rollups, sources, stories]
+export const TABLES: TableMeta[] = [articles, delivery, entities, ops, rollups, sources, stories, themes]
   .flatMap((m) => Object.values(m).filter((v) => is(v, SQLiteTable)))
   .map(describe)
   .sort((a, b) => a.name.localeCompare(b.name))

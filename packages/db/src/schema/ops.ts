@@ -51,7 +51,7 @@ export const gateLog = sqliteTable(
   (t) => [index("gate_log_story_idx").on(t.storyId), index("gate_log_at_idx").on(t.at)],
 )
 
-export const LLM_PURPOSES = ["match", "merge", "novelty", "extraction", "writeup", "digest_edit"] as const
+export const LLM_PURPOSES = ["match", "merge", "novelty", "extraction", "writeup", "digest_edit", "theme"] as const
 export type LlmPurpose = (typeof LLM_PURPOSES)[number]
 
 export const llmCalls = sqliteTable(

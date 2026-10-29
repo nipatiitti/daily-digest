@@ -67,3 +67,49 @@ export const FactLabels = z.object({
 })
 
 export type FactLabels = z.infer<typeof FactLabels>
+
+/** A theme name word: letters and digits, full stops and hyphens only inside, as in "Node.js" or "Zero-day". */
+const NAME_WORD = String.raw`[\p{L}\p{N}](?:[\p{L}\p{N}'’&+/]|[.\-](?=[\p{L}\p{N}]))*`
+
+/** Two to four words, the first capitalised; no dashes, bullets, other punctuation or trailing full stop. */
+export const THEME_NAME = new RegExp(String.raw`^(?=[\p{Lu}\p{N}])${NAME_WORD}(?: ${NAME_WORD}){1,3}$`, "u")
+
+/** No line breaks, en or em dashes, bullets, middots or pipes. */
+const THEME_DESCRIPTION = /^[^\n‒-―•·|]+$/u
+
+const ThemeName = z
+  .string()
+  .min(2)
+  .max(60)
+  .regex(THEME_NAME)
+  .describe("Two to four words in sentence case, no dashes, no trailing full stop")
+const ThemeDescription = z
+  .string()
+  .min(1)
+  .max(240)
+  .regex(THEME_DESCRIPTION)
+  .describe("One sentence on what the development is")
+
+/** Haiku's choice for one story: join a candidate theme or propose a new one. */
+export const ThemeDecision = z.discriminatedUnion("decision", [
+  z.object({
+    decision: z.literal("join"),
+    themeId: z.number().int().describe("id of the candidate the story joins"),
+    confidence: z.number().min(0).max(1),
+  }),
+  z.object({
+    decision: z.literal("new"),
+    proposedName: ThemeName,
+    proposedDescription: ThemeDescription,
+  }),
+])
+
+export type ThemeDecision = z.infer<typeof ThemeDecision>
+
+/** Sonnet's answer to a proposal: create the theme or merge it into a nearest one. */
+export const ThemeCreate = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("create"), name: ThemeName, description: ThemeDescription }),
+  z.object({ action: z.literal("merge"), intoThemeId: z.number().int().describe("id of the candidate it duplicates") }),
+])
+
+export type ThemeCreate = z.infer<typeof ThemeCreate>
