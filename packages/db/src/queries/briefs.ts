@@ -1,9 +1,7 @@
-import { and, type Column, desc, eq, gte, isNotNull, isNull, lt, or, sql } from "drizzle-orm"
+import { and, type Column, desc, eq, gte, isNotNull, lt, sql } from "drizzle-orm"
 import type { Db } from "../client.ts"
 import { type BriefMover, briefs, rollups, stories, themes } from "../schema/index.ts"
 import { themeStreams } from "./dashboard.ts"
-
-const HOUR = 3_600_000
 
 export const insertBrief = async (db: Db, row: typeof briefs.$inferInsert) => {
   const [inserted] = await db.insert(briefs).values(row).returning({ id: briefs.id })
@@ -91,36 +89,16 @@ export const briefMovers = async (db: Db, o: { from: number; to: number; minArti
 }
 
 /**
- * queries/themes.ts's themeMomentum as writeThemeMomentum wrote it in the hour of `explainedAt`: articles in the
- * `hours` before that hour against the `hours` before those. The hour is in SQL since it differs per row.
+ * Active signals whose 24 hour momentum moved at least `bandPct` percentage points from the momentum stored with their
+ * explanation, or that have none, the largest swing since the last explanation first. A rise from 0 (null) now is
+ * never due.
  */
-const momentumWhenExplained = (hours: number) => {
-  const at = sql`(cast(${themes.explainedAt} / ${sql.raw(String(HOUR))} as integer) * ${sql.raw(String(HOUR))})`
-  const split = sql`(${at} - ${hours * HOUR})`
-  const recent = sql`total(case when ${rollups.bucket} >= ${split} then ${rollups.articles} end)`
-  const previous = sql`total(case when ${rollups.bucket} < ${split} then ${rollups.articles} end)`
-  return sql<number | null>`(select case when ${previous} = 0 then (case when ${recent} = 0 then 0 end)
-    else round(100.0 * (${recent} - ${previous}) / ${previous}) end
-    from ${rollups} where ${rollups.kind} = 'theme' and ${rollups.key} = cast(${themes.id} as text)
-    and ${rollups.bucket} >= ${split} - ${hours * HOUR} and ${rollups.bucket} < ${at})`
-}
-
-/**
- * Active signals whose 24 hour momentum moved at least `bandPct` percentage points since their explanation was
- * written, or that have none yet, the largest swing first. A rise from 0 (null) now is never due.
- */
-export const themesToExplain = (db: Db, o: { hours: number; bandPct: number; limit: number }) => {
-  const then = momentumWhenExplained(o.hours)
+export const themesToExplain = (db: Db, o: { bandPct: number; limit: number }) => {
+  const swing = sql`coalesce(abs(${themes.momentum24h} - ${themes.explainedMomentum24h}), 1e9)`
   return db
     .select({ id: themes.id, name: themes.name, description: themes.description, momentum24h: themes.momentum24h })
     .from(themes)
-    .where(
-      and(
-        eq(themes.status, "active"),
-        isNotNull(themes.momentum24h),
-        or(isNull(themes.explainedAt), sql`coalesce(abs(${themes.momentum24h} - ${then}), 1e9) >= ${o.bandPct}`),
-      ),
-    )
-    .orderBy(largestSwing(themes.momentum24h))
+    .where(and(eq(themes.status, "active"), isNotNull(themes.momentum24h), sql`${swing} >= ${o.bandPct}`))
+    .orderBy(desc(swing))
     .limit(o.limit)
 }

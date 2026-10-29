@@ -296,8 +296,12 @@ export const refreshThemeCounts = (db: Db, themeIds: number[]) =>
     ),
   )
 
+/** The explanation, with the momentum it was written at, for briefs.ts's themesToExplain. */
 export const updateThemeExplanation = (db: Db, id: number, explanation: string, at: number) =>
-  db.update(themes).set({ explanation, explainedAt: at }).where(eq(themes.id, id))
+  db
+    .update(themes)
+    .set({ explanation, explainedAt: at, explainedMomentum24h: sql`${themes.momentum24h}` })
+    .where(eq(themes.id, id))
 const HOUR = 3_600_000
 
 /**

@@ -13,13 +13,16 @@ A theme description is exactly one sentence on what the development is.
 Never write URLs, publisher names, timestamps, counts, scores or changes in numbers.
 Never use the en dash, the em dash, bullets, middots or pipes. Use commas and full stops.`
 
+/** Feed or model text put inside a prompt tag, escaped so it cannot close the tag and leave the data. */
+export const tagText = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+
 export type ThemeStory = { id: number; headline: string; summary: string | null; entities: string[]; stream: string }
 export type ThemeCandidateInput = { id: number; name: string; description: string; examples: string[] }
 
 const storyBlock = (s: ThemeStory) => `<story id="${s.id}" stream="${s.stream}">
-<headline>${s.headline}</headline>
-<summary>${s.summary ?? ""}</summary>
-<entities>${s.entities.join(", ")}</entities>
+<headline>${tagText(s.headline)}</headline>
+<summary>${tagText(s.summary ?? "")}</summary>
+<entities>${tagText(s.entities.join(", "))}</entities>
 </story>`
 
 const candidateBlocks = (cs: ThemeCandidateInput[]) =>
@@ -28,9 +31,9 @@ const candidateBlocks = (cs: ThemeCandidateInput[]) =>
     : cs
         .map(
           (c) => `<candidate id="${c.id}">
-<name>${c.name}</name>
-<description>${c.description}</description>
-${c.examples.map((e) => `<example>${e}</example>`).join("\n")}
+<name>${tagText(c.name)}</name>
+<description>${tagText(c.description)}</description>
+${c.examples.map((e) => `<example>${tagText(e)}</example>`).join("\n")}
 </candidate>`,
         )
         .join("\n\n")
@@ -87,8 +90,8 @@ export const nameTheme = async (
     prompt: `${storyBlock(proposal.story)}
 
 <proposal>
-<name>${proposal.proposedName}</name>
-<description>${proposal.proposedDescription}</description>
+<name>${tagText(proposal.proposedName)}</name>
+<description>${tagText(proposal.proposedDescription)}</description>
 </proposal>
 
 ${candidateBlocks(nearest)}

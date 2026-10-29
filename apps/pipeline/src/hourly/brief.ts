@@ -64,20 +64,28 @@ export const briefStep = async (db: Db, llm: Llm | null, now: number): Promise<R
     readout("Signals rising", rising.recent, rising.previous, window),
   ]
 
-  const brief = await writeBrief(llm, { readouts, movers, previous: previous?.text ?? null })
-  const briefId = await insertBrief(db, {
-    at: now,
-    text: brief.text,
-    moversJson: { readouts, movers },
-    llmCallId: brief.callId,
-  })
-  await runBatch(
-    db,
-    brief.themeLines.map((l) => updateThemeExplanation(db, l.themeId, l.line, now)),
-  )
+  // A refused or failed brief is logged; the explanations below still run.
+  let brief: Awaited<ReturnType<typeof writeBrief>> | null = null
+  let briefId: number | null = null
+  let briefError: string | null = null
+  try {
+    brief = await writeBrief(llm, { readouts, movers, previous: previous?.text ?? null, hours })
+    briefId = await insertBrief(db, {
+      at: now,
+      text: brief.text,
+      moversJson: { readouts, movers },
+      llmCallId: brief.callId,
+    })
+    await runBatch(
+      db,
+      brief.themeLines.map((l) => updateThemeExplanation(db, l.themeId, l.line, now)),
+    )
+  } catch (e) {
+    briefError = String(e)
+  }
 
   // After the lines above, so a signal the brief just explained is not due again.
-  const due = await themesToExplain(db, { hours, bandPct: BRIEF.explainBandPct, limit: BRIEF.maxExplanations })
+  const due = await themesToExplain(db, { bandPct: BRIEF.explainBandPct, limit: BRIEF.maxExplanations })
   const titles = await themeExamples(
     db,
     due.map((t) => t.id),
@@ -85,29 +93,42 @@ export const briefStep = async (db: Db, llm: Llm | null, now: number): Promise<R
   )
   const explained: number[] = []
   const errors: string[] = []
+  const updates: ReturnType<typeof updateThemeExplanation>[] = []
   for (const t of due) {
     try {
-      await updateThemeExplanation(db, t.id, await explainTheme(llm, { ...t, titles: titles.get(t.id) ?? [] }), now)
+      const line = await explainTheme(llm, { ...t, titles: titles.get(t.id) ?? [] })
+      updates.push(updateThemeExplanation(db, t.id, line, now))
       explained.push(t.id)
     } catch (e) {
       errors.push(`${t.id}: ${String(e)}`)
       if (e instanceof SpendCapError) break
     }
   }
+  // At most BRIEF.maxExplanations UPDATEs of three bound parameters each, so one batch holds them all.
+  try {
+    await runBatch(db, updates)
+  } catch (e) {
+    errors.push(`update: ${String(e)}`)
+    explained.length = 0
+  }
 
   log("brief", {
     briefId,
-    llmCallId: brief.callId,
+    llmCallId: brief?.callId ?? null,
     movers: movers.map(subjectRef),
-    droppedIds: brief.dropped,
-    themeLines: brief.themeLines.map((l) => l.themeId),
+    droppedIds: brief?.dropped ?? [],
+    unknownNumbers: brief?.unknownNumbers ?? 0,
+    themeLines: brief?.themeLines.map((l) => l.themeId) ?? [],
+    briefError,
     explained,
     errors,
   })
   return {
     movers: movers.length,
-    droppedIds: brief.dropped.length,
-    themeLines: brief.themeLines.length,
+    droppedIds: brief?.dropped.length ?? 0,
+    unknownNumbers: brief?.unknownNumbers ?? 0,
+    themeLines: brief?.themeLines.length ?? 0,
+    briefError: briefError === null ? 0 : 1,
     explained: explained.length,
     explainErrors: errors.length,
   }

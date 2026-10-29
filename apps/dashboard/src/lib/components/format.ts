@@ -34,14 +34,18 @@ export const byKeyBucket = (rows: { key: string; bucket: number; articles: numbe
 export const padId = (prefix: string, id: number) => `${prefix}-${String(id).padStart(4, "0")}`
 
 /**
- * Model text cut at its SIG-0412 and STY-1234 ids, each id with the signal or story page it links to (`href` null
- * for plain text), after the forbidden glyphs are dropped.
+ * Model text cut at its SIG-0412 and STY-1234 ids, padded or not, each id in its padded form with the signal or story
+ * page it links to (`href` null for plain text), after the forbidden glyphs are dropped.
  */
-export const idSegments = (text: string) =>
-  sanitizeUserText(text)
-    .split(/\b((?:SIG|STY)-\d{4,})\b/)
-    .map((part, i) => ({
-      text: part,
-      // split puts the captured ids at the odd indexes.
-      href: i % 2 ? `/${part.startsWith("SIG") ? "signals" : "stories"}/${Number(part.slice(4))}` : null,
-    }))
+export const idSegments = (text: string) => {
+  // split puts each id's two captures, kind and number, after the text before it: text, kind, number, text, ...
+  const parts = sanitizeUserText(text).split(/\b(SIG|STY)-0*(\d+)\b/)
+  const out: { text: string; href: string | null }[] = []
+  for (let i = 0; i < parts.length; i += 3) {
+    out.push({ text: parts[i] ?? "", href: null })
+    const kind = parts[i + 1]
+    const id = Number(parts[i + 2])
+    if (kind) out.push({ text: padId(kind, id), href: `/${kind === "SIG" ? "signals" : "stories"}/${id}` })
+  }
+  return out
+}

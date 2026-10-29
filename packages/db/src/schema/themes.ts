@@ -67,6 +67,8 @@ export const themes = sqliteTable(
     momentum7d: real("momentum_7d"),
     explanation: text(),
     explainedAt: integer(),
+    /** `momentum24h` when the explanation was written; the brief explains again once it moves a band away. */
+    explainedMomentum24h: real("explained_momentum_24h"),
   },
   (t) => [index("themes_status_last_seen_idx").on(t.status, t.lastSeen), index("themes_last_seen_idx").on(t.lastSeen)],
 )
