@@ -5,7 +5,7 @@ import { spendSince } from "./ops.ts"
 
 /** The three header lamps: newest fetched item, stories waiting for a score, Claude spend since UTC midnight. */
 export const lampInputs = async (db: Db, now: number) => {
-  const [[fetch], [backlog], spendTodayUsd] = await Promise.all([
+  const [[newest], [backlog], spendTodayUsd] = await Promise.all([
     db.select({ at: sql<number | null>`max(${sources.lastNewItemAt})` }).from(sources),
     db
       .select({ n: sql<number>`count(*)` })
@@ -14,7 +14,7 @@ export const lampInputs = async (db: Db, now: number) => {
     spendSince(db, now - (now % 86_400_000)),
   ])
   return {
-    minutesSinceNewItem: fetch?.at == null ? null : Math.floor((now - fetch.at) / 60_000),
+    minutesSinceNewItem: newest?.at == null ? null : Math.floor((now - newest.at) / 60_000),
     evalBacklog: backlog?.n ?? 0,
     spendTodayUsd,
   }

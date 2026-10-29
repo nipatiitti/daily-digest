@@ -4,12 +4,13 @@ Each Worker is a Cloudflare Workers Builds project linked to this repo. Every pu
 deploys it, so nothing in this repo needs Cloudflare credentials. The `pipeline` deploy also applies D1
 migrations and upserts the source seed before `wrangler deploy`.
 
-| Worker            | Root directory | Deploy command             | What the deploy does                                                                         |
-| ----------------- | -------------- | -------------------------- | -------------------------------------------------------------------------------------------- |
-| `digest-pipeline` | _(empty)_      | `pnpm run deploy:pipeline` | `pnpm check` → D1 migrations → seed upsert → `wrangler deploy` → sync secrets                |
-| `digest-ingress`  | _(empty)_      | `pnpm run deploy:ingress`  | `pnpm check` → `wrangler deploy` (`hooks.dd.nipatiitti.fi`) → sync secrets → set the webhook |
+| Worker             | Root directory | Deploy command              | What the deploy does                                                                         |
+| ------------------ | -------------- | --------------------------- | -------------------------------------------------------------------------------------------- |
+| `digest-pipeline`  | _(empty)_      | `pnpm run deploy:pipeline`  | `pnpm check` → D1 migrations → seed upsert → `wrangler deploy` → sync secrets                |
+| `digest-ingress`   | _(empty)_      | `pnpm run deploy:ingress`   | `pnpm check` → `wrangler deploy` (`hooks.dd.nipatiitti.fi`) → sync secrets → set the webhook |
+| `digest-dashboard` | _(empty)_      | `pnpm run deploy:dashboard` | `pnpm check` → `vite build` → `wrangler deploy` (`dd.nipatiitti.fi`) → sync secrets          |
 
-Build command is empty for both. The root directory is the repo root: the root scripts hand off to the app with
+Build command is empty for all three; the dashboard's `vite build` runs inside its deploy script. The root directory is the repo root: the root scripts hand off to the app with
 `pnpm --filter`, so Workers Builds installs the whole workspace from the root lockfile. It takes Node 24 from
 `.nvmrc` and pnpm from `packageManager`. Migrations must stay additive, since both Workers deploy from the same
 commit in parallel.
@@ -47,7 +48,8 @@ secret token. Both skip quietly when the variables aren't set.
 
 4. **Workers Builds projects** (Workers & Pages → Create → Import a repository → `nipatiitti/daily-digest`), one
    per row of the table above:
-   - The project name must equal `name` in that app's `wrangler.jsonc` (`digest-pipeline`, `digest-ingress`).
+   - The project name must equal `name` in that app's `wrangler.jsonc` (`digest-pipeline`, `digest-ingress`,
+     `digest-dashboard`).
    - Production branch `main`; turn off builds for non-production branches.
    - Optional build watch paths: `apps/<app>/*`, `packages/*`, `scripts/*`, `pnpm-lock.yaml`.
    - If the pipeline deploy fails on `d1 migrations apply` with an auth error, give the build's API token
@@ -66,9 +68,21 @@ secret token. Both skip quietly when the variables aren't set.
    Without `ANTHROPIC_API_KEY` the pipeline still runs: the match step falls back to a plain threshold instead
    of asking Haiku, and nothing is extracted. `DAILY_SPEND_CAP_USD` in `apps/pipeline/wrangler.jsonc` (3.33) caps Claude spend per UTC day; `ANTHROPIC_BASE_URL` can be added as a var later to route through AI Gateway.
 
-6. Retry the deploys. The ingress log ends with `set-webhook: https://hooks.dd.nipatiitti.fi/telegram`.
+6. **Cloudflare Access for the dashboard** (Zero Trust → Access → Applications → Add → Self-hosted):
+   - Application domain `dd.nipatiitti.fi`, with a policy that allows only your email.
+   - Copy the application's **AUD tag** into `ACCESS_AUD` in `apps/dashboard/wrangler.jsonc`, and the team
+     domain (`<team>.cloudflareaccess.com`) into `ACCESS_TEAM_DOMAIN`. Neither is secret.
+   - Access stops strangers at the edge. The Worker verifies the `Cf-Access-Jwt-Assertion` header against
+     the team's keys as well and answers 403 without it, or when either var is empty.
 
-7. **Chat ID**: send `/start` to the bot and it replies with the chat ID. **Send it back** (comma-separate
+   The dashboard's other vars: `DAILY_SPEND_CAP_USD` mirrors the pipeline's cap for the spend lamp, and
+   `DASHBOARD_SPEND_CAP_USD` caps Claude calls the dashboard makes itself. It binds the pipeline's `digest`
+   and `story-eval` Workflows by `script_name`, so deploy the pipeline first. `vite dev` skips the Access check
+   and reads the production D1 (`"remote": true`), which needs `npx wrangler login`.
+
+7. Retry the deploys. The ingress log ends with `set-webhook: https://hooks.dd.nipatiitti.fi/telegram`.
+
+8. **Chat ID**: send `/start` to the bot and it replies with the chat ID. **Send it back** (comma-separate
    several). It goes in `TELEGRAM_CHAT_IDS` in both `wrangler.jsonc` files.
 
 ## Checking it works

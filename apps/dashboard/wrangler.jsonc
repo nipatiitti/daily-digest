@@ -1,0 +1,39 @@
+// Deployed by Workers Builds on every push to main (see DEPLOY.md).
+// No placeholders left; nothing secret lives here.
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "digest-dashboard",
+  // Written by `vite build` (@sveltejs/adapter-cloudflare); static files are served from the same folder.
+  "main": ".svelte-kit/cloudflare/_worker.js",
+  "assets": { "directory": ".svelte-kit/cloudflare", "binding": "ASSETS" },
+  "compatibility_date": "2026-10-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  // Cloudflare Access guards this hostname; src/hooks.server.ts verifies its JWT again.
+  "routes": [{ "pattern": "dd.nipatiitti.fi", "custom_domain": true }],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "digest",
+      "database_id": "1111b792-3208-4f85-83e8-127a14c57038",
+      // `vite dev` reads the production database. Migrations stay with apps/pipeline.
+      "remote": true
+    }
+  ],
+  // The pipeline defines both Workflows; the dashboard only triggers and inspects them.
+  "workflows": [
+    { "binding": "STORY_EVAL", "name": "story-eval", "class_name": "StoryEval", "script_name": "digest-pipeline" },
+    { "binding": "DIGEST", "name": "digest", "class_name": "Digest", "script_name": "digest-pipeline" }
+  ],
+  "vars": {
+    // Cloudflare Access team domain and the dashboard application's AUD tag (Zero Trust, Access, Applications)
+    "ACCESS_TEAM_DOMAIN": "nipatiitti.cloudflareaccess.com",
+    "ACCESS_AUD": "afa3cb3e93c8277b59500f3320e28e99b4c7508173e55f8f2700968e63d17a67",
+    // Claude spend per UTC day for dashboard-initiated calls
+    "DASHBOARD_SPEND_CAP_USD": "2",
+    // Same value as apps/pipeline; the spend lamp compares today's spend against it
+    "DAILY_SPEND_CAP_USD": "3.33"
+  }
+}

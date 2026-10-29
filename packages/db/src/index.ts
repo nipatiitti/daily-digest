@@ -1,5 +1,6 @@
 export * from "./client.ts"
 export * from "./queries/articles.ts"
+export * from "./queries/dashboard.ts"
 export * from "./queries/delivery.ts"
 export * from "./queries/digest.ts"
 export * from "./queries/matchlog.ts"

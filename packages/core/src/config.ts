@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 3
+export const CONFIG_VERSION = 4
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -144,4 +144,16 @@ export const FORECAST = {
   horizonHours: 24,
   /** Hours of history fed to the forecast. */
   historyHours: 72,
+}
+
+/** Dashboard header lamps. */
+export const LAMPS = {
+  /** Fetch lamp: newest item older than this is stale, older than off is off. */
+  fetchStaleMinutes: 30,
+  fetchOffMinutes: 180,
+  /** Eval lamp: stories extracted but not yet scored. */
+  evalBacklogStale: 5,
+  evalBacklogAlert: 20,
+  /** Spend lamp: stale at this percent of DAILY_SPEND_CAP_USD, alert at 100. */
+  spendStalePct: 80,
 }

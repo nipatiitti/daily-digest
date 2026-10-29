@@ -1,0 +1,35 @@
+{
+  "name": "@digest/dashboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "prepare": "svelte-kit sync || echo ''",
+    "types": "wrangler types --strict-vars false && node -e \"const fs=require('node:fs'),f='worker-configuration.d.ts';fs.writeFileSync(f,fs.readFileSync(f,'utf8').replace(/\\n\\s*mainModule: typeof import\\(.*\\);/,''))\"",
+    "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "deploy": "vite build && wrangler deploy && node ../../scripts/sync-secrets.ts"
+  },
+  "dependencies": {
+    "@digest/core": "workspace:*",
+    "@digest/db": "workspace:*",
+    "@digest/design": "workspace:*",
+    "@lucide/svelte": "1.64.0",
+    "jose": "6.2.13"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-cloudflare": "8.0.1",
+    "@sveltejs/kit": "^3.0.0",
+    "@sveltejs/vite-plugin-svelte": "^7.2.0",
+    "@tailwindcss/vite": "^4.3.0",
+    "svelte": "^5.57.1",
+    "svelte-check": "^4.6.0",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.0",
+    "wrangler": "4.155.0"
+  },
+  "imports": {
+    "#lib/*": "./src/lib/*"
+  }
+}
