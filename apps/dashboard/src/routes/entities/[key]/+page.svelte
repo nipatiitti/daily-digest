@@ -79,6 +79,7 @@ const confirmed = (question: string) => async (f: { submit: () => Promise<unknow
               { name: "Sources", value: s.sources },
               { name: "Origins", value: s.origins },
             ]}
+            themes={s.themes}
           >
             {#snippet momentum()}<Delta pct={s.momentum24h} suffix="24h" />{/snippet}
           </StoryCard>

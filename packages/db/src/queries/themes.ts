@@ -21,10 +21,13 @@ const PAGE = 200
 /** ID lists of at most 50, leaving room for a statement's other parameters. */
 const idChunks = <T>(ids: T[]) => chunkRows(ids, 2)
 
+/** Links that count: detaching a story keeps its link for the audit trail, with confidence 0. */
+const linked = gt(storyThemes.confidence, 0)
+
 /** Unmerged stories linked to the theme in the current row, for `storyCount`. */
 const storyCountSql = sql<number>`(select count(*) from ${storyThemes} inner join ${stories}
   on ${stories.id} = ${storyThemes.storyId}
-  where ${storyThemes.themeId} = ${themes.id} and ${stories.status} != 'merged')`
+  where ${storyThemes.themeId} = ${themes.id} and ${linked} and ${stories.status} != 'merged')`
 
 /** The insert for one event, to put in a caller's batch. */
 export const recordThemeEvent = (db: Db, event: typeof themeEvents.$inferInsert) => db.insert(themeEvents).values(event)
@@ -45,7 +48,7 @@ export const candidateThemesByEntities = (db: Db, storyId: number, min: number, 
     .select({ storyId: storyThemes.storyId })
     .from(storyThemes)
     .innerJoin(themes, eq(themes.id, storyThemes.themeId))
-    .where(inArray(themes.status, LIVE))
+    .where(and(linked, inArray(themes.status, LIVE)))
   return db
     .select({ id: storyThemes.themeId, shared })
     .from(storyEntities)
@@ -56,7 +59,7 @@ export const candidateThemesByEntities = (db: Db, storyId: number, min: number, 
     .innerJoin(stories, and(eq(stories.id, other.storyId), ne(stories.status, "merged")))
     .innerJoin(storyThemes, eq(storyThemes.storyId, other.storyId))
     .innerJoin(themes, eq(themes.id, storyThemes.themeId))
-    .where(and(eq(storyEntities.storyId, storyId), inArray(themes.status, LIVE)))
+    .where(and(eq(storyEntities.storyId, storyId), linked, inArray(themes.status, LIVE)))
     .groupBy(storyThemes.themeId)
     .having(gte(shared, min))
     .orderBy(desc(shared))
@@ -100,7 +103,7 @@ export const themeExamples = async (db: Db, themeIds: number[], perTheme: number
         })
         .from(storyThemes)
         .innerJoin(stories, eq(stories.id, storyThemes.storyId))
-        .where(and(inArray(storyThemes.themeId, ids), ne(stories.status, "merged")))
+        .where(and(inArray(storyThemes.themeId, ids), linked, ne(stories.status, "merged")))
         .as("ranked")
       return db
         .select({ themeId: ranked.themeId, title: ranked.title })
@@ -165,6 +168,7 @@ export const assignStoryTheme = async (
   const themeId = theme.id
   const reopen = theme.status === "closed"
   await runBatch(db, [
+    // An existing row wins, so a story detached from this theme (confidence 0) stays detached rather than reviving.
     db
       .insert(storyThemes)
       .values({ storyId: a.storyId, themeId, confidence: a.confidence, assignedAt: a.at, by: a.by })
@@ -185,8 +189,9 @@ export const assignStoryTheme = async (
 }
 
 /**
- * Merge `fromId` into `intoId`: its links are copied to the target (the old rows stay, for the audit trail), it is
- * marked merged, both get a `merged` event, and the target's seen range and count are refreshed.
+ * Merge `fromId` into `intoId`: its links are copied to the target with their confidence, so a detached link stays
+ * detached (the old rows stay, for the audit trail), it is marked merged, both get a `merged` event, and the target's
+ * seen range and count are refreshed.
  */
 export const mergeTheme = async (db: Db, fromId: number, intoId: number, by: string) => {
   if (fromId === intoId) throw new Error("A theme cannot merge into itself")
@@ -261,7 +266,7 @@ export const promoteProvisionalThemes = async (db: Db, o: { minStories: number; 
         or(
           gte(themes.storyCount, o.minStories),
           sql`exists (select 1 from ${storyThemes} inner join ${stories} on ${stories.id} = ${storyThemes.storyId}
-            where ${storyThemes.themeId} = ${themes.id} and ${stories.status} != 'merged'
+            where ${storyThemes.themeId} = ${themes.id} and ${linked} and ${stories.status} != 'merged'
             and ${stories.score} >= ${o.minScore})`,
         ),
       ),
@@ -293,7 +298,7 @@ export const storyThemeLinks = async (db: Db, storyIds: number[]) => {
       db
         .select({ storyId: storyThemes.storyId, themeId: storyThemes.themeId, assignedAt: storyThemes.assignedAt })
         .from(storyThemes)
-        .where(inArray(storyThemes.storyId, ids)),
+        .where(and(inArray(storyThemes.storyId, ids), linked)),
     ),
   )
   return (pages as { storyId: number; themeId: number; assignedAt: number }[][]).flat()
@@ -305,6 +310,7 @@ const themeGroupWhere = (from: number, to: number, themeIds?: number[]) =>
   and(
     gte(articles.publishedAt, from),
     lt(articles.publishedAt, to),
+    linked,
     themeIds ? inArray(storyThemes.themeId, themeIds) : undefined,
   )
 
@@ -361,12 +367,15 @@ export const refreshThemeRollups = (db: Db, themeIds: number[], from: number, to
     ),
   )
 
-/** queries/rollups.ts's story momentum, over theme rollups: null for a rise from 0, 0 for 0 to 0. */
-const themeMomentum = (currentBucket: number, hours: number) => {
+/**
+ * queries/rollups.ts's story momentum, over theme rollups: articles in the `hours` before `currentBucket` against the
+ * `hours` before that. Null for a rise from 0, 0 for 0 to 0.
+ */
+export const themeMomentum = (currentBucket: number, hours: number) => {
   const split = currentBucket - hours * HOUR
   const recent = sql`total(case when ${rollups.bucket} >= ${split} then ${rollups.articles} end)`
   const previous = sql`total(case when ${rollups.bucket} < ${split} then ${rollups.articles} end)`
-  return sql`(select case when ${previous} = 0 then (case when ${recent} = 0 then 0 end)
+  return sql<number | null>`(select case when ${previous} = 0 then (case when ${recent} = 0 then 0 end)
     else round(100.0 * (${recent} - ${previous}) / ${previous}) end
     from ${rollups} where ${rollups.kind} = 'theme' and ${rollups.key} = cast(${themes.id} as text)
     and ${rollups.bucket} >= ${split - hours * HOUR} and ${rollups.bucket} < ${currentBucket})`

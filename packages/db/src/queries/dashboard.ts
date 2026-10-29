@@ -54,6 +54,7 @@ import {
 } from "../schema/index.ts"
 import { spendSince } from "./ops.ts"
 import { storyArticles } from "./stories.ts"
+import { themeMomentum } from "./themes.ts"
 
 /** The three header lamps: newest fetched item, stories waiting for a score, Claude spend since UTC midnight. */
 export const lampInputs = async (db: Db, now: number) => {
@@ -548,22 +549,11 @@ const HOUR = 3_600_000
 /** Theme links a reader sees: detaching a story keeps its link for the audit trail, with confidence 0. */
 const themeLinked = gt(storyThemes.confidence, 0)
 
-/** themes.ts's momentum over any window: articles in the `hours` before `currentBucket` against the `hours` before. */
-const themeWindowMomentum = (currentBucket: number, hours: number) => {
-  const split = currentBucket - hours * HOUR
-  const recent = sql`total(case when ${rollups.bucket} >= ${split} then ${rollups.articles} end)`
-  const previous = sql`total(case when ${rollups.bucket} < ${split} then ${rollups.articles} end)`
-  return sql<number | null>`(select case when ${previous} = 0 then (case when ${recent} = 0 then 0 end)
-    else round(100.0 * (${recent} - ${previous}) / ${previous}) end
-    from ${rollups} where ${rollups.kind} = 'theme' and ${rollups.key} = cast(${themes.id} as text)
-    and ${rollups.bucket} >= ${split - hours * HOUR} and ${rollups.bucket} < ${currentBucket})`
-}
-
 /** Momentum over the `hours` before `now`'s hour: the stored column for 24 hours and 7 days, else from rollups. */
 const themeMomentumOver = (hours: number, now: number) => {
   if (hours === 24) return sql<number | null>`${themes.momentum24h}`
   if (hours === 7 * 24) return sql<number | null>`${themes.momentum7d}`
-  return themeWindowMomentum(Math.floor(now / HOUR) * HOUR, hours)
+  return themeMomentum(Math.floor(now / HOUR) * HOUR, hours)
 }
 
 /**
@@ -628,7 +618,7 @@ export const risingThemes = async (db: Db, hours: number, now: number) => {
   const [row] = await db
     .select({
       recent: rising(themeMomentumOver(hours, now)),
-      previous: rising(themeWindowMomentum(Math.floor(now / HOUR) * HOUR - hours * HOUR, hours)),
+      previous: rising(themeMomentum(Math.floor(now / HOUR) * HOUR - hours * HOUR, hours)),
     })
     .from(themes)
     .where(eq(themes.status, "active"))

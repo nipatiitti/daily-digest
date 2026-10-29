@@ -23,8 +23,3 @@ export const entityRows = query(search, async (q) => {
   const hours = bucketsBetween(from, to)
   return rows.map((r) => ({ ...r, spark: hours.map((b) => got.get(`${r.id}/${b}`) ?? 0) }))
 })
-
-/** Name matches for the series picker; nothing for an empty search. */
-export const entitySearch = query(search, async (q) =>
-  q ? await entityList(db(), { q, limit: DASHBOARD.seriesPickerHits }) : [],
-)

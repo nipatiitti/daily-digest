@@ -1,5 +1,5 @@
 import { DASHBOARD, HOUR_MS } from "@digest/core"
-import { rankedStories } from "@digest/db"
+import { rankedStories, storyThemeChips } from "@digest/db"
 import { z } from "zod"
 import { DAY_MS, RANGES, rangeToWindow } from "#lib/range.ts"
 import { db } from "#lib/server/db.ts"
@@ -13,13 +13,22 @@ const input = z.object({
   q: z.string().trim().optional(),
 })
 
-/** Stories by score in the range, or with an article in one hour or day bucket, optionally matching a title search. */
-export const storyList = query(input, ({ range, hour, day, q }) => {
+/**
+ * Stories by score in the range, or with an article in one hour or day bucket, optionally matching a title search,
+ * each with its signals.
+ */
+export const storyList = query(input, async ({ range, hour, day, q }) => {
+  const d = db()
   const at = hour ?? day
-  return rankedStories(db(), {
+  const stories = await rankedStories(d, {
     from: rangeToWindow(range, Date.now()).from,
     limit: DASHBOARD.storiesPageSize,
     bucket: at === undefined ? undefined : { from: at, to: at + (hour === undefined ? DAY_MS : HOUR_MS) },
     q,
   })
+  const themes = await storyThemeChips(
+    d,
+    stories.map((s) => s.id),
+  )
+  return stories.map((s) => ({ ...s, themes: themes.get(s.id) ?? [] }))
 })

@@ -1,5 +1,13 @@
 import { bucketsBetween, DASHBOARD, ENTITIES, hourBucket, normaliseEntityKey } from "@digest/core"
-import { entityById, entityByKey, entityDetail, mergeEntity, renameEntity, rollupSeries } from "@digest/db"
+import {
+  entityById,
+  entityByKey,
+  entityDetail,
+  mergeEntity,
+  renameEntity,
+  rollupSeries,
+  storyThemeChips,
+} from "@digest/db"
 import { error, invalid, redirect } from "@sveltejs/kit"
 import { z } from "zod"
 import { entityHref } from "#lib/components/index.ts"
@@ -15,7 +23,10 @@ const line = (buckets: number[], got: Map<number, number>) => ({
   values: buckets.map((b) => got.get(b) ?? 0),
 })
 
-/** The entity page in one round of reads after the entity row; a merged entity redirects to the one it went into. */
+/**
+ * The entity page in one round of reads after the entity row, then its stories' signals; a merged entity redirects to
+ * the one it went into.
+ */
 export const entityPage = query(key, async (k) => {
   const d = db()
   const entity = await entityByKey(d, k)
@@ -31,10 +42,14 @@ export const entityPage = query(key, async (k) => {
     entityDetail(d, entity.id, { since: dayFrom, limit: DASHBOARD.entityPageStories }),
     rollupSeries(d, "entity", String(entity.id), from, now),
   ])
+  const themes = await storyThemeChips(
+    d,
+    detail.stories.map((s) => s.id),
+  )
   return {
     entity,
     aliases: detail.aliases,
-    stories: detail.stories,
+    stories: detail.stories.map((s) => ({ ...s, themes: themes.get(s.id) ?? [] })),
     articlesPerHour: line(bucketsBetween(from, now), new Map(rollup.map((r) => [r.bucket, r.articles]))),
     storiesPerDay: line(
       bucketsBetween(dayFrom, now).filter((b) => b % DAY_MS === 0),
