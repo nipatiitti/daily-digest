@@ -1,3 +1,4 @@
+export { default as AskButton } from "./AskButton.svelte"
 export { default as Button } from "./Button.svelte"
 export { default as Delta } from "./Delta.svelte"
 export { default as EntityChip, entityHref } from "./EntityChip.svelte"

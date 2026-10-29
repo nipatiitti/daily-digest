@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 14
+export const CONFIG_VERSION = 15
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -281,4 +281,10 @@ export const DASHBOARD = {
   networkCharge: -60,
   networkGravity: 0.05,
   networkCollidePadding: 3,
+  /**
+   * Claude spend per UTC day on dashboard answers when DASHBOARD_SPEND_CAP_USD is unset, and the longest answer.
+   * Answers are kept until their input changes, so they need no expiry.
+   */
+  spendCapUsd: 2,
+  answerMaxTokens: 1024,
 }

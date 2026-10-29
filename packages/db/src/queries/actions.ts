@@ -434,9 +434,8 @@ const writeSource = async (
   const old = Object.fromEntries(Object.keys(set).map((k) => [k, source[k as keyof typeof set]]))
   await runBatch(db, [
     db.update(sources).set(set).where(eq(sources.id, id)),
-    // TODO kinds: source_poll and source_reset belong in ACTION_KINDS; until then `action` tells them apart.
     recordAction(db, {
-      kind: "source_toggle",
+      kind: action === "poll_now" ? "source_poll" : action === "reset_backoff" ? "source_reset" : "source_toggle",
       subjectKind: "source",
       subjectId: String(id),
       detailJson: { action, old, new: set },

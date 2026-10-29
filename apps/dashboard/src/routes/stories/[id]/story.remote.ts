@@ -1,18 +1,5 @@
 import { env } from "cloudflare:workers"
-import {
-  ALERT,
-  articleSetHash,
-  bucketsBetween,
-  CONFIG_VERSION,
-  credibilityFor,
-  DASHBOARD,
-  hourBucket,
-  recencyFactor,
-  rubricValue,
-  SCORING,
-  scoreTier,
-  storyScore,
-} from "@digest/core"
+import { ALERT, articleSetHash, bucketsBetween, DASHBOARD, hourBucket } from "@digest/core"
 import {
   changeFactStatus,
   closeStory,
@@ -20,11 +7,9 @@ import {
   followStory,
   getStory,
   mergeStory,
-  RUBRIC_DIMENSIONS,
   recordAction,
   refreshStoryCounters,
   rollupSeries,
-  type Story,
   storyDetail,
   storyEntityList,
   storyThemeChips,
@@ -34,6 +19,7 @@ import { z } from "zod"
 import { attempt } from "#lib/forms.ts"
 import { DAY_MS } from "#lib/range.ts"
 import { db } from "#lib/server/db.ts"
+import { scoreBreakdown } from "#lib/server/llm.ts"
 import { form, query } from "$app/server"
 
 /** IDs and day counts. */
@@ -46,46 +32,6 @@ const gateScore = (reasons: string[]) => {
     if (m) return Number(m[1])
   }
   return null
-}
-
-/**
- * Every term of core's score, recomputed from the rubric stored at the last evaluation with the story's current
- * counts and best tier, and recency as of `at`, the last alert gate. It can differ from the stored score.
- */
-const scoreBreakdown = (story: Story, bestTier: string | null, at: number) => {
-  const r = story.rubricJson
-  if (!r) return null
-  const input = {
-    rubric: r.value,
-    bestTier,
-    lastArticleAt: story.lastArticleAt,
-    independentOrigins: story.independentOrigins,
-    origins6h: story.origins6h,
-    now: at,
-  }
-  const uncapped = rubricValue(r.dims, { promotional: false, aggregator: false, evergreen: false, opinion: false })
-  const score = storyScore(input)
-  return {
-    dims: RUBRIC_DIMENSIONS.map((d) => ({
-      label: `${d[0]?.toUpperCase()}${d.slice(1)}, weight ${SCORING.weights[d]}`,
-      values: [{ name: "Points", value: r.dims[d] }],
-    })),
-    uncapped,
-    rubric: r.value,
-    caps: Object.entries(SCORING.caps).flatMap(([flag, cap]) =>
-      r.flags[flag as keyof typeof r.flags] ? [{ flag, cap, applied: uncapped > cap }] : [],
-    ),
-    bestTier,
-    credibility: credibilityFor(bestTier),
-    at,
-    recency: recencyFactor(story.lastArticleAt, at),
-    // With a zero rubric the score is only its bonuses; zeroing one count leaves the other.
-    originBonus: storyScore({ ...input, rubric: 0, origins6h: 0 }),
-    velocityBonus: storyScore({ ...input, rubric: 0, independentOrigins: 0 }),
-    score,
-    tier: scoreTier(score),
-    configVersion: CONFIG_VERSION,
-  }
 }
 
 /** The whole story page in one round of reads after the story row. */
@@ -127,7 +73,7 @@ export const storyPage = query(positiveInt, async (id) => {
     scoreHistory: { labels: scores.map((s) => new Date(s.at).toISOString()), values: scores.map((s) => s.score) },
     articleCount: detail.articleCount,
     mergedIn: detail.mergedIn,
-    breakdown: scoreBreakdown(story, detail.bestTier, alerts[0]?.at ?? now),
+    breakdown: scoreBreakdown(story, detail.bestTier, alerts[0]?.at),
     facts: FACT_STATUSES.map((status) => ({
       status,
       rows: detail.facts

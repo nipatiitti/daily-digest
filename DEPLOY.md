@@ -8,7 +8,7 @@ migrations and upserts the source seed before `wrangler deploy`.
 | ------------------ | -------------- | --------------------------- | -------------------------------------------------------------------------------------------- |
 | `digest-pipeline`  | _(empty)_      | `pnpm run deploy:pipeline`  | `pnpm check` → D1 migrations → seed upsert → `wrangler deploy` → sync secrets                |
 | `digest-ingress`   | _(empty)_      | `pnpm run deploy:ingress`   | `pnpm check` → `wrangler deploy` (`hooks.dd.nipatiitti.fi`) → sync secrets → set the webhook |
-| `digest-dashboard` | _(empty)_      | `pnpm run deploy:dashboard` | `pnpm check` → `vite build` → `wrangler deploy` (`dd.nipatiitti.fi`)                         |
+| `digest-dashboard` | _(empty)_      | `pnpm run deploy:dashboard` | `pnpm check` → `vite build` → `wrangler deploy` (`dd.nipatiitti.fi`) → sync secrets          |
 
 Build command is empty for all three; the dashboard's `vite build` runs inside its deploy script. The root directory is the repo root: the root scripts hand off to the app with
 `pnpm --filter`, so Workers Builds installs the whole workspace from the root lockfile. It takes Node 24 from
@@ -57,12 +57,13 @@ secret token. Both skip quietly when the variables aren't set.
 
 5. **Build variables** (Worker → Settings → Builds → Variables and secrets). Mark them as secrets.
 
-   | Worker            | Variable                  | Value              |
-   | ----------------- | ------------------------- | ------------------ |
-   | `digest-pipeline` | `TELEGRAM_BOT_TOKEN`      | bot token          |
-   | `digest-ingress`  | `TELEGRAM_BOT_TOKEN`      | bot token          |
-   | `digest-ingress`  | `TELEGRAM_WEBHOOK_SECRET` | secret from step 2 |
-   | `digest-pipeline` | `ANTHROPIC_API_KEY`       | Anthropic API key  |
+   | Worker             | Variable                  | Value              |
+   | ------------------ | ------------------------- | ------------------ |
+   | `digest-pipeline`  | `TELEGRAM_BOT_TOKEN`      | bot token          |
+   | `digest-ingress`   | `TELEGRAM_BOT_TOKEN`      | bot token          |
+   | `digest-ingress`   | `TELEGRAM_WEBHOOK_SECRET` | secret from step 2 |
+   | `digest-pipeline`  | `ANTHROPIC_API_KEY`       | Anthropic API key  |
+   | `digest-dashboard` | `ANTHROPIC_API_KEY`       | Anthropic API key  |
 
    The deploy copies them into runtime secrets and registers the webhook, so there's nothing else to set.
    Without `ANTHROPIC_API_KEY` the pipeline still runs: the match step falls back to a plain threshold instead
@@ -77,7 +78,10 @@ secret token. Both skip quietly when the variables aren't set.
      empty. Static build assets are covered by Access alone.
 
    The dashboard's other vars: `DAILY_SPEND_CAP_USD` mirrors the pipeline's cap for the spend lamp, and
-   `DASHBOARD_SPEND_CAP_USD` is reserved for the on-demand Claude answers (not built yet). It binds the pipeline's `digest`
+   `DASHBOARD_SPEND_CAP_USD` (2) caps Claude spend per UTC day on the on-demand answers, such as "Explain the score"
+   on a story page. Those `llm_calls` rows carry the purposes `explain`, `compare`, `review` and `ask`, and only they
+   count against it; an answer over the cap gets a 402. Without the dashboard's `ANTHROPIC_API_KEY` the buttons answer
+   that Claude is not set up, and stored answers still show. It binds the pipeline's `digest`
    and `story-eval` Workflows by `script_name`, so deploy the pipeline first. `vite dev` skips the Access check
    and reads the production D1 (`"remote": true`), which needs `npx wrangler login`.
 

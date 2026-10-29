@@ -1,4 +1,4 @@
-import { index, integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core"
+import { index, integer, real, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
 import { articles } from "./articles.ts"
 import { nowMs } from "./common.ts"
 import { stories } from "./stories.ts"
@@ -51,6 +51,12 @@ export const gateLog = sqliteTable(
   (t) => [index("gate_log_story_idx").on(t.storyId), index("gate_log_at_idx").on(t.at)],
 )
 
+/**
+ * Calls a person starts from the dashboard, never the pipeline: the purpose alone tells their `llm_calls` rows apart,
+ * and they count against DASHBOARD_SPEND_CAP_USD.
+ */
+export const DASHBOARD_LLM_PURPOSES = ["explain", "compare", "review", "ask"] as const
+
 export const LLM_PURPOSES = [
   "match",
   "merge",
@@ -61,6 +67,7 @@ export const LLM_PURPOSES = [
   "theme",
   "brief",
   "theme_explain",
+  ...DASHBOARD_LLM_PURPOSES,
 ] as const
 export type LlmPurpose = (typeof LLM_PURPOSES)[number]
 
@@ -75,7 +82,7 @@ export const llmCalls = sqliteTable(
     outputTokens: integer().notNull(),
     cachedTokens: integer().notNull().default(0),
     estCostUsd: real().notNull(),
-    /** Set when the response failed schema validation. */
+    /** Set when the response failed schema validation, was refused, or a streamed answer broke off. */
     validationError: text(),
     at: nowMs(),
   },
@@ -129,6 +136,8 @@ export const ACTION_KINDS = [
   "new_story",
   "edit",
   "source_toggle",
+  "source_poll",
+  "source_reset",
   "send_now",
   "theme_rename",
   "theme_merge",
@@ -158,6 +167,25 @@ export const actions = sqliteTable(
 )
 
 export type Action = typeof actions.$inferSelect
+
+/** On-demand Claude answers on the dashboard, kept until their input changes. */
+export const llmAnswers = sqliteTable(
+  "llm_answers",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    purpose: text({ enum: DASHBOARD_LLM_PURPOSES }).notNull(),
+    subjectKind: text({ enum: ACTION_SUBJECTS }).notNull(),
+    subjectId: text().notNull(),
+    /** SHA-256 of everything the model was given, so a changed story or prompt asks again. */
+    inputHash: text().notNull(),
+    text: text().notNull(),
+    /** The SIG- and STY- ids the text cites. */
+    refsJson: text({ mode: "json" }).$type<string[]>().notNull(),
+    llmCallId: integer().references(() => llmCalls.id),
+    at: nowMs(),
+  },
+  (t) => [unique("llm_answers_key_uq").on(t.purpose, t.subjectKind, t.subjectId, t.inputHash)],
+)
 
 export const dbStats = sqliteTable("db_stats", {
   /** YYYY-MM-DD, UTC */

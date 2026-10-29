@@ -1,6 +1,7 @@
 <script lang="ts">
 import { BarChart, TrendChart } from "#lib/charts/index.ts"
 import {
+  AskButton,
   Button,
   Delta,
   EntityChip,
@@ -232,6 +233,9 @@ const noFacts = $derived(p.facts.every((g) => g.rows.length === 0))
           <dd class="dd-data">{t.value}</dd>
         {/each}
       </dl>
+      {#key s.id}
+        <AskButton purpose="explain" subjectKind="story" subjectId={s.id} label="Explain the score" />
+      {/key}
     {:else}
       <p class="dd-body text-ink-muted">Not scored yet.</p>
     {/if}

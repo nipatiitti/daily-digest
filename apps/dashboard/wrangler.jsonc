@@ -31,9 +31,10 @@
     // Cloudflare Access team domain and the dashboard application's AUD tag (Zero Trust, Access, Applications)
     "ACCESS_TEAM_DOMAIN": "nipatiitti.cloudflareaccess.com",
     "ACCESS_AUD": "afa3cb3e93c8277b59500f3320e28e99b4c7508173e55f8f2700968e63d17a67",
-    // Claude spend per UTC day for dashboard-initiated calls
+    // Claude spend per UTC day on dashboard answers (llm_calls purposes explain, compare, review, ask)
     "DASHBOARD_SPEND_CAP_USD": "2",
     // Same value as apps/pipeline; the spend lamp compares today's spend against it
     "DAILY_SPEND_CAP_USD": "3.33"
   }
+  // Secret (a Workers Builds build variable, copied in by scripts/sync-secrets.ts, never here): ANTHROPIC_API_KEY
 }

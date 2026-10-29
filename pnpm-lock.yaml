@@ -25,6 +25,9 @@ importers:
       "@digest/design":
         specifier: workspace:*
         version: link:../../packages/design
+      "@digest/llm":
+        specifier: workspace:*
+        version: link:../../packages/llm
       "@lucide/svelte":
         specifier: 1.64.0
         version: 1.64.0(svelte@5.57.3)

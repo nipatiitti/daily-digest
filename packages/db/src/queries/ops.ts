@@ -1,13 +1,13 @@
-import { gte, sql } from "drizzle-orm"
+import { and, gte, notInArray, sql } from "drizzle-orm"
 import type { Db } from "../client.ts"
-import { dbStats, llmCalls } from "../schema/index.ts"
+import { DASHBOARD_LLM_PURPOSES, dbStats, llmCalls } from "../schema/index.ts"
 
-/** Claude spend in USD since `since` (unix ms), for the daily cap. */
+/** Pipeline Claude spend in USD since `since` (unix ms), for the daily cap. Dashboard purposes have their own cap. */
 export const spendSince = async (db: Db, since: number) => {
   const [row] = await db
     .select({ total: sql<number>`coalesce(sum(${llmCalls.estCostUsd}), 0)` })
     .from(llmCalls)
-    .where(gte(llmCalls.at, since))
+    .where(and(gte(llmCalls.at, since), notInArray(llmCalls.purpose, [...DASHBOARD_LLM_PURPOSES])))
   return row?.total ?? 0
 }
 
