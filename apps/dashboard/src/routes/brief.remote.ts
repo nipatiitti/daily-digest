@@ -33,12 +33,16 @@ const windowOf = async (d: Db, range: Range, now: number) => {
   return w.from > 0 ? w : { ...w, from: (await firstDeskBucket(d)) ?? now }
 }
 
-/** Counts over 2N slices of a window and the one before it: the second half is the spark, the halves give the delta. */
-const trend = (rows: { slice: number; n: number }[]) => {
-  const all = Array<number>(2 * N).fill(0)
+/**
+ * Counts over `n` slices of a window, after `n` slices of the window before it when `compare` is set: the last `n`
+ * are the spark and the value, and the two halves give the delta.
+ */
+const trend = (rows: { slice: number; n: number }[], n: number, compare: boolean) => {
+  const all = Array<number>(compare ? 2 * n : n).fill(0)
   for (const r of rows) all[r.slice] = r.n
-  const spark = all.slice(N)
-  return { value: sum(spark), spark, delta: momentum({ recent: sum(spark), previous: sum(all.slice(0, N)) }) }
+  const spark = all.slice(-n)
+  const value = sum(spark)
+  return { value, spark, delta: compare ? momentum({ recent: value, previous: sum(all.slice(0, n)) }) : undefined }
 }
 
 /** Article counts from rollup rows, looked up by key and bucket. */
@@ -47,48 +51,60 @@ const byKeyBucket = (rows: { key: string; bucket: number; articles: number }[]) 
   return (key: string | number, bucket: number) => got.get(`${key}/${bucket}`) ?? 0
 }
 
-/** The four headline numbers, each with a delta against the previous window and a spark over the current one. */
+/**
+ * The four headline numbers over complete hours, each with a spark over the current window and, except for "all", a
+ * delta against the window before it.
+ */
 export const readouts = query(rangeSchema, async (range) => {
   const d = db()
-  const now = Date.now()
+  const at = Date.now()
+  const now = hourBucket(at)
   const w = await windowOf(d, range, now)
-  const digestAt = (await previousDigestSentAt(d)) ?? now - DAY_MS
+  const compare = range !== "all"
+  const from = compare ? previousWindow(w).from : w.from
+  const slices = compare ? 2 * N : N
+  const digestAt = (await previousDigestSentAt(d)) ?? at - DAY_MS
+  const sinceDigest = Math.min(hourBucket(digestAt), now - HOUR_MS)
+  const hours = (now - sinceDigest) / HOUR_MS
+  const n = Math.min(N, hours)
   const [desk, digestDesk, evals, totals] = await Promise.all([
-    deskSlices(d, previousWindow(w).from, now, 2 * N),
-    deskSlices(d, previousWindow({ from: digestAt, to: now }).from, now, 2 * N),
-    evaluationSlices(d, previousWindow(w).from, now, 2 * N),
+    deskSlices(d, from, now, slices),
+    deskSlices(d, previousWindow({ from: sinceDigest, to: now }).from, now, 2 * n),
+    evaluationSlices(d, from, now, slices),
     activeStoryTotals(d, digestAt),
   ])
-  const vs = range === "all" ? "all time" : `vs previous ${range}`
-  const newStories = (rows: typeof desk) => trend(rows.map((r) => ({ slice: r.slice, n: r.newStories })))
+  const vs = compare ? `vs previous ${range}` : "all time"
+  const q = `?range=${range}`
+  const newStories = (rows: typeof desk) => rows.map((r) => ({ slice: r.slice, n: r.newStories }))
+  const articles = desk.map((r) => ({ slice: r.slice, n: r.articles }))
   return [
     {
       label: "Active stories",
-      ...newStories(desk),
+      ...trend(newStories(desk), N, compare),
       value: totals.active,
       note: `new stories ${vs}`,
-      href: `/stories?range=${range}`,
+      href: `/stories${q}`,
     },
     {
       label: "New since digest",
-      ...newStories(digestDesk),
-      value: totals.newSince,
-      note: `vs the ${fmtInt((now - digestAt) / HOUR_MS)} hours before`,
+      ...trend(newStories(digestDesk), n, true),
+      note: `vs the ${fmtInt(hours)} ${hours === 1 ? "hour" : "hours"} before`,
       href: "/data/stories",
     },
     {
       label: "Articles",
-      ...trend(desk.map((r) => ({ slice: r.slice, n: r.articles }))),
+      ...trend(articles, N, compare),
       note: vs,
-      href: "/data/articles",
+      href: `/data/articles${q}`,
     },
-    { label: "Evaluations", ...trend(evals), note: vs, href: "/data/llm_calls" },
+    { label: "Evaluations", ...trend(evals, N, compare), note: vs, href: `/data/llm_calls${q}` },
   ]
 })
 
 /**
  * Articles per stream and bucket. Hourly ranges end at the last complete hour and append a Holt projection fed by
- * FORECAST.historyHours of history; day-bucketed ranges have no projection.
+ * FORECAST.historyHours of history; day-bucketed ranges end on today, drawn as partial after the last complete day.
+ * Point links cover measured buckets only.
  */
 export const streamSeries = query(rangeSchema, async (range) => {
   const d = db()
@@ -101,18 +117,19 @@ export const streamSeries = query(rangeSchema, async (range) => {
   const count = byKeyBucket(await rollupTotals(d, "stream", [...CATEGORIES], start, to, bucketMs))
   const buckets = bucketsBetween(start, to).filter((b) => b % bucketMs === 0)
   const skip = (first - start) / bucketMs
-  const shown = [...buckets.slice(skip), ...(hourly ? bucketsBetween(to, to + FORECAST.horizonHours * HOUR_MS) : [])]
+  const measured = buckets.slice(skip)
+  const shown = [...measured, ...(hourly ? bucketsBetween(to, to + FORECAST.horizonHours * HOUR_MS) : [])]
   const bucket = hourly ? "hour" : "day"
   return {
     bucket,
     labels: shown.map((b) => new Date(b).toISOString()),
-    hrefs: shown.map((b) => `/stories?${bucket}=${b}`),
+    hrefs: measured.map((b) => `/stories?range=${range}&${bucket}=${b}`),
     series: CATEGORIES.map((c) => {
       const values = buckets.map((b) => count(c, b))
       const projection = hourly ? holtLinear(values.slice(-FORECAST.historyHours)) : []
       return { name: STREAM_NAMES[c], stream: streamSlot(c), values: [...values.slice(skip), ...projection] }
     }),
-    projectFrom: hourly ? buckets.length - skip - 1 : undefined,
+    projectFrom: Math.max(0, measured.length - (hourly ? 1 : 2)),
   }
 })
 
@@ -121,8 +138,9 @@ export const topStories = query(rangeSchema, async (range) => {
   const d = db()
   const now = Date.now()
   const stories = await rankedStories(d, { from: rangeToWindow(range, now).from, limit: DASHBOARD.topStories })
-  const sparkFrom = hourBucket(now) - (N - 1) * HOUR_MS
-  const hours = bucketsBetween(sparkFrom, now)
+  const sparkTo = hourBucket(now)
+  const sparkFrom = sparkTo - N * HOUR_MS
+  const hours = bucketsBetween(sparkFrom, sparkTo)
   const lead = stories[0]
   const [rows, facts] = await Promise.all([
     rollupBuckets(
@@ -130,7 +148,7 @@ export const topStories = query(rangeSchema, async (range) => {
       "story",
       stories.map((s) => String(s.id)),
       sparkFrom,
-      now,
+      sparkTo,
     ),
     lead ? storyFacts(d, lead.id, DASHBOARD.leadFacts) : [],
   ])

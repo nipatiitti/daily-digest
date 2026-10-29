@@ -71,7 +71,7 @@ const today = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "U
       {#each await readouts(range) as r (r.label)}
         <Readout label={r.label} value={r.value} href={r.href}>
           {#snippet foot()}
-            <Delta {...r.delta} />
+            {#if r.delta}<Delta {...r.delta} />{/if}
             <span>{r.note}</span>
             <span class="ml-auto"><Sparkline values={r.spark} stream="other" label="{r.label}, {r.note}" /></span>
           {/snippet}
