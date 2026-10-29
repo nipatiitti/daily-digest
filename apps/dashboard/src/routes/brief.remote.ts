@@ -23,7 +23,7 @@ import {
   themeList,
 } from "@digest/db"
 import { z } from "zod"
-import { fmtInt } from "#lib/components/format.ts"
+import { byKeyBucket, fmtInt } from "#lib/components/format.ts"
 import { STREAM_NAMES, streamSlot } from "#lib/components/streams.ts"
 import { DAY_MS, previousWindow, RANGES, type Range, rangeToWindow } from "#lib/range.ts"
 import { db } from "#lib/server/db.ts"
@@ -49,12 +49,6 @@ const trend = (rows: { slice: number; n: number }[], n: number, compare: boolean
   const spark = all.slice(-n)
   const value = sum(spark)
   return { value, spark, delta: compare ? momentum({ recent: value, previous: sum(all.slice(0, n)) }) : undefined }
-}
-
-/** Article counts from rollup rows, looked up by key and bucket. */
-const byKeyBucket = (rows: { key: string; bucket: number; articles: number }[]) => {
-  const got = new Map(rows.map((r) => [`${r.key}/${r.bucket}`, r.articles]))
-  return (key: string | number, bucket: number) => got.get(`${key}/${bucket}`) ?? 0
 }
 
 /**
@@ -155,14 +149,17 @@ export const streamSeries = query(rangeSchema, async (range) => {
   }
 })
 
-/** One entity's or theme's articles per bucket, lined up with streamSeries; null for an unknown key. */
+/**
+ * One entity's or theme's articles per bucket, lined up with streamSeries; null for an unknown key, or a theme the
+ * dashboard does not show (provisional or merged).
+ */
 export const seriesFor = query(
   z.object({ kind: z.enum(["entity", "theme"]), key: z.string(), range: rangeSchema }),
   async ({ kind, key, range }) => {
     const d = db()
     const found =
       kind === "entity" ? await entityByKey(d, key) : /^\d+$/.test(key) ? await themeById(d, Number(key)) : null
-    if (!found) return null
+    if (!found || ("status" in found && (found.status === "provisional" || found.status === "merged"))) return null
     const { counts, values } = await chartWindow(d, range, Date.now())
     const count = await counts(kind, [String(found.id)])
     return { key, name: found.name, stream: "other" as const, values: values((b) => count(found.id, b)) }
@@ -181,7 +178,7 @@ export const seriesSearch = query(z.string().trim().max(200), async (q) => {
   return [
     ...themes.map((t) => ({ key: `theme:${t.id}`, name: t.name, kind: "signal" })),
     ...ents.map((e) => ({ key: `entity:${e.key}`, name: e.name, kind: e.kind })),
-  ]
+  ].slice(0, limit)
 })
 
 /** The best active stories with an article in the range, each with an hourly spark, and the lead's facts. */

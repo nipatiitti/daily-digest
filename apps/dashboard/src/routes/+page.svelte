@@ -108,10 +108,9 @@ const today = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "U
     <SegmentedControl label="Time range" options={ranges} value={range} />
   </header>
 
-  <svelte:boundary pending={loading} {failed}>
-    {@const [tiles, board] = await Promise.all([readouts(range), signalBoard(range)])}
-    <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-      {#each tiles as r (r.label)}
+  <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+    <svelte:boundary pending={loading} {failed}>
+      {#each await readouts(range) as r (r.label)}
         <Readout label={r.label} value={r.value} href={r.href}>
           {#snippet foot()}
             {#if r.delta}<Delta {...r.delta} />{/if}
@@ -120,14 +119,17 @@ const today = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "U
           {/snippet}
         </Readout>
       {/each}
+    </svelte:boundary>
+    <svelte:boundary pending={loading} {failed}>
+      {@const board = await signalBoard(range)}
       <Readout label="Signals rising" value={board.rising.value} href="/signals">
         {#snippet foot()}
           {#if board.rising.delta}<Delta {...board.rising.delta} />{/if}
           <span>{board.rising.note}</span>
         {/snippet}
       </Readout>
-    </section>
-  </svelte:boundary>
+    </svelte:boundary>
+  </section>
 
   <section class="grid gap-4 rounded-lg border border-line bg-surface p-6 shadow-sm">
     <svelte:boundary pending={loading} {failed}>

@@ -1,4 +1,4 @@
-import { bucketsBetween, DASHBOARD, HOUR_MS, THEME_NAME } from "@digest/core"
+import { bucketsBetween, DASHBOARD, HOUR_MS, ThemeName } from "@digest/core"
 import {
   closeTheme,
   detachStoryTheme,
@@ -8,11 +8,12 @@ import {
   themeById,
   themeDetail,
 } from "@digest/db"
-import { error, invalid, redirect } from "@sveltejs/kit"
+import { error, redirect } from "@sveltejs/kit"
 import { z } from "zod"
+import { attempt } from "#lib/forms.ts"
 import { DAY_MS } from "#lib/range.ts"
 import { db } from "#lib/server/db.ts"
-import { form, getRequestEvent, query } from "$app/server"
+import { form, query } from "$app/server"
 
 const positiveInt = z.number().int().positive()
 
@@ -51,21 +52,11 @@ export const signalPage = query(positiveInt, async (id) => {
       ...j,
       x: Math.min(1, Math.max(0, (Math.floor(j.at / bucketMs) * bucketMs - from) / bucketMs / last)),
     })),
-    stories: detail.stories.toReversed(),
+    stories: detail.stories,
     entities: detail.entities,
     events: detail.events,
   }
 })
-
-/** Runs a write as the signed-in user; a helper's Error becomes a form issue. */
-const attempt = async (run: (by: string) => Promise<unknown>) => {
-  try {
-    await run(getRequestEvent().locals.user)
-  } catch (e) {
-    if (e instanceof Error) invalid(e.message)
-    throw e
-  }
-}
 
 /** A write, then the page refreshes. */
 const write = async (id: number, run: (by: string) => Promise<unknown>) => {
@@ -75,11 +66,8 @@ const write = async (id: number, run: (by: string) => Promise<unknown>) => {
 
 const subject = z.object({ id: positiveInt })
 
-export const renameForm = form(
-  subject.extend({
-    name: z.string().trim().max(60).regex(THEME_NAME, "Two to four words, with no dashes or trailing full stop"),
-  }),
-  ({ id, name }) => write(id, (by) => renameTheme(db(), id, name, by)),
+export const renameForm = form(subject.extend({ name: z.string().trim().pipe(ThemeName) }), ({ id, name }) =>
+  write(id, (by) => renameTheme(db(), id, name, by)),
 )
 
 /** This theme goes into the one named, so the page moves there. */

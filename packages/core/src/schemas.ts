@@ -80,11 +80,12 @@ export const THEME_NAME = new RegExp(`^${NAME_WORD}(?: ${NAME_WORD}){1,3}$`, "u"
 /** No line breaks, figure, en or em dashes, horizontal bars, bullets, middots or pipes. */
 const THEME_DESCRIPTION = /^[^\n\u{2012}-\u{2015}\u{2022}\xB7\x7C]+$/u
 
-const ThemeName = z
+/** A theme name as the model writes it and the dashboard's rename form accepts it. */
+export const ThemeName = z
   .string()
   .min(2)
   .max(60)
-  .regex(THEME_NAME)
+  .regex(THEME_NAME, "Two to four words, with no dashes or trailing full stop")
   .describe("Two to four words in sentence case, no dashes, no trailing full stop")
 const ThemeDescription = z
   .string()

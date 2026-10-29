@@ -1,4 +1,4 @@
-import { and, eq, or, sql } from "drizzle-orm"
+import { and, eq, gt, gte, inArray, min, or, type SQL, sql } from "drizzle-orm"
 import { type Db, runBatch } from "../client.ts"
 import {
   actions,
@@ -9,6 +9,7 @@ import {
   type FactStatus,
   facts,
   follows,
+  rollups,
   rowWhere,
   sources,
   stories,
@@ -237,6 +238,7 @@ export const editCell = async (db: Db, meta: TableMeta, id: string, column: stri
 }
 
 const HOUR = 3_600_000
+const hour = (ms: number) => Math.floor(ms / HOUR) * HOUR
 
 /** An entity that can still be acted on; a missing or merged one is an Error naming it. */
 const liveEntity = async (db: Db, id: number) => {
@@ -289,7 +291,6 @@ export const mergeEntity = async (db: Db, fromId: number, intoId: number, by: st
     }),
   ])
   await refreshEntityCounts(db, [intoId])
-  const hour = (ms: number) => Math.floor(ms / HOUR) * HOUR
   await refreshEntityRollups(db, [intoId], hour(from.firstSeen), hour(from.lastSeen) + HOUR, now)
 }
 
@@ -329,10 +330,13 @@ export const renameTheme = async (db: Db, id: number, name: string, by: string) 
   ])
 }
 
-/** A story joining reopens a closed theme. */
+/**
+ * Active themes only: a story joining reopens a closed theme as active, which would skip a provisional theme's
+ * promotion.
+ */
 export const closeTheme = async (db: Db, id: number, by: string) => {
   const theme = await liveTheme(db, id)
-  if (theme.status === "closed") throw new Error(`${theme.name} is already closed`)
+  if (theme.status !== "active") throw new Error("Only active signals can be closed")
   const detail = { from: theme.status }
   await runBatch(db, [
     db.update(themes).set({ status: "closed" }).where(eq(themes.id, id)),
@@ -342,12 +346,42 @@ export const closeTheme = async (db: Db, id: number, by: string) => {
 }
 
 /**
+ * Rollups are derived counts, so a theme's rows from hour `from` on may be deleted to recount them: the recount only
+ * upserts buckets that still have articles, and a bucket that lost them would keep its old count. Returned unrun.
+ */
+const clearThemeRollups = (db: Db, themeId: number, from: number) =>
+  db.delete(rollups).where(and(eq(rollups.kind, "theme"), eq(rollups.key, String(themeId)), gte(rollups.bucket, from)))
+
+/** The hour of the earliest article matching `where`, or null when none does. */
+const firstArticleHour = async (db: Db, where: SQL) => {
+  const [row] = await db
+    .select({ at: min(articles.publishedAt) })
+    .from(articles)
+    .where(where)
+  return row?.at == null ? null : hour(row.at)
+}
+
+/**
  * mergeTheme runs its own batch and writes both themes' events, so the audit row goes first, as mergeStory's does,
- * keeping the source's status. Then the target's rollups are recounted over the source's hours.
+ * keeping the source's status. Then the target's rollups are cleared and recounted from the first article of the
+ * source's linked stories, or from its first seen when they have none, since a theme's stories can predate it.
  */
 export const mergeThemeInto = async (db: Db, fromId: number, intoId: number, by: string, now = Date.now()) => {
   if (fromId === intoId) throw new Error("A signal cannot merge into itself")
-  const [from, into] = await Promise.all([liveTheme(db, fromId), liveTheme(db, intoId)])
+  const [from, into, first] = await Promise.all([
+    liveTheme(db, fromId),
+    liveTheme(db, intoId),
+    firstArticleHour(
+      db,
+      inArray(
+        articles.storyId,
+        db
+          .select({ id: storyThemes.storyId })
+          .from(storyThemes)
+          .where(and(eq(storyThemes.themeId, fromId), gt(storyThemes.confidence, 0))),
+      ),
+    ),
+  ])
   await recordAction(db, {
     kind: "theme_merge",
     subjectKind: "theme",
@@ -356,17 +390,23 @@ export const mergeThemeInto = async (db: Db, fromId: number, intoId: number, by:
     by,
   })
   await mergeTheme(db, fromId, intoId, by)
-  const hour = (ms: number) => Math.floor(ms / HOUR) * HOUR
-  await refreshThemeRollups(db, [intoId], hour(from.firstSeen), hour(now), now)
+  const start = first ?? hour(from.firstSeen)
+  await clearThemeRollups(db, intoId, start)
+  await refreshThemeRollups(db, [intoId], start, hour(now) + HOUR, now)
 }
 
 /**
- * Nothing is deleted: the link stays with confidence 0, which every reader of links skips, and its old confidence and
- * author go in the event and the audit row. Then the theme's story count is recounted.
+ * The link is not deleted: it stays with confidence 0, which every reader of links skips, and its old confidence and
+ * author go in the event and the audit row. Then the theme's story count is recounted, and its rollups from the
+ * story's first article, so the story's articles leave its spine and momentum.
  */
-export const detachStoryTheme = async (db: Db, themeId: number, storyId: number, by: string) => {
+export const detachStoryTheme = async (db: Db, themeId: number, storyId: number, by: string, now = Date.now()) => {
   const link = and(eq(storyThemes.themeId, themeId), eq(storyThemes.storyId, storyId))
-  const [theme, [row]] = await Promise.all([liveTheme(db, themeId), db.select().from(storyThemes).where(link)])
+  const [theme, [row], first] = await Promise.all([
+    liveTheme(db, themeId),
+    db.select().from(storyThemes).where(link),
+    firstArticleHour(db, eq(articles.storyId, storyId)),
+  ])
   if (!row || row.confidence === 0) throw new Error(`Story ${storyId} is not in ${theme.name}`)
   const detail = { storyId, confidence: row.confidence, linkedBy: row.by }
   const subjectId = String(themeId)
@@ -374,6 +414,8 @@ export const detachStoryTheme = async (db: Db, themeId: number, storyId: number,
     db.update(storyThemes).set({ confidence: 0 }).where(link),
     recordThemeEvent(db, { themeId, kind: "detached", detailJson: { ...detail, by } }),
     recordAction(db, { kind: "theme_detach", subjectKind: "theme", subjectId, detailJson: detail, by }),
+    ...(first === null ? [] : [clearThemeRollups(db, themeId, first)]),
   ])
   await refreshThemeCounts(db, [themeId])
+  if (first !== null) await refreshThemeRollups(db, [themeId], first, hour(now) + HOUR, now)
 }

@@ -8,12 +8,13 @@ import {
   rollupSeries,
   storyThemeChips,
 } from "@digest/db"
-import { error, invalid, redirect } from "@sveltejs/kit"
+import { error, redirect } from "@sveltejs/kit"
 import { z } from "zod"
 import { entityHref } from "#lib/components/index.ts"
+import { attempt } from "#lib/forms.ts"
 import { DAY_MS } from "#lib/range.ts"
 import { db } from "#lib/server/db.ts"
-import { form, getRequestEvent, query } from "$app/server"
+import { form, query } from "$app/server"
 
 const key = z.string().min(1)
 
@@ -58,14 +59,9 @@ export const entityPage = query(key, async (k) => {
   }
 })
 
-/** Runs a write as the signed-in user; a helper's Error becomes a form issue, then the page refreshes. */
+/** A write, then the page refreshes. */
 const write = async (k: string, run: (by: string) => Promise<unknown>) => {
-  try {
-    await run(getRequestEvent().locals.user)
-  } catch (e) {
-    if (e instanceof Error) invalid(e.message)
-    throw e
-  }
+  await attempt(run)
   await entityPage(k).refresh()
 }
 

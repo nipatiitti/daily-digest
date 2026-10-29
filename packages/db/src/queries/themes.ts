@@ -153,22 +153,32 @@ export const createTheme = async (
 
 /**
  * Link a story to a theme, or to the theme it was merged into, if it is not yet, move `lastSeen` and recount; a closed
- * theme reopens as active. Returns the theme linked.
+ * theme reopens as active. A story detached from that theme writes nothing. Returns the theme linked.
  */
 export const assignStoryTheme = async (
   db: Db,
   a: { storyId: number; themeId: number; confidence: number; by: string; at: number },
 ) => {
-  let theme = await themeById(db, a.themeId)
+  const linkOf = async (themeId: number) => {
+    const [row] = await db
+      .select({ confidence: storyThemes.confidence })
+      .from(storyThemes)
+      .where(and(eq(storyThemes.storyId, a.storyId), eq(storyThemes.themeId, themeId)))
+    return row ?? null
+  }
+  let [theme, existing] = await Promise.all([themeById(db, a.themeId), linkOf(a.themeId)])
   for (let hop = 0; hop < 5 && theme?.status === "merged" && theme.mergedInto !== null; hop++) {
     theme = await themeById(db, theme.mergedInto)
   }
   if (!theme) throw new Error(`No theme ${a.themeId}`)
   if (theme.status === "merged") throw new Error(`Theme ${a.themeId} merges through more than 5 themes`)
   const themeId = theme.id
+  if (themeId !== a.themeId) existing = await linkOf(themeId)
+  // A detached story stays out: no lastSeen move, recount or reopen.
+  if (existing?.confidence === 0) return { reopened: false, themeId }
   const reopen = theme.status === "closed"
   await runBatch(db, [
-    // An existing row wins, so a story detached from this theme (confidence 0) stays detached rather than reviving.
+    // An existing row wins, so a live link keeps its confidence and time.
     db
       .insert(storyThemes)
       .values({ storyId: a.storyId, themeId, confidence: a.confidence, assignedAt: a.at, by: a.by })
@@ -290,18 +300,26 @@ export const updateThemeExplanation = (db: Db, id: number, explanation: string, 
   db.update(themes).set({ explanation, explainedAt: at }).where(eq(themes.id, id))
 const HOUR = 3_600_000
 
-/** A story's theme links with their times, so the hourly step can pass over stories themed since their extraction. */
+/**
+ * A story's theme links with their times, so the hourly step can pass over stories themed since their extraction.
+ * Detached links (confidence 0) are included, so a story is never sent back to the theme it was detached from.
+ */
 export const storyThemeLinks = async (db: Db, storyIds: number[]) => {
   const pages = await runBatch(
     db,
     idChunks(storyIds).map((ids) =>
       db
-        .select({ storyId: storyThemes.storyId, themeId: storyThemes.themeId, assignedAt: storyThemes.assignedAt })
+        .select({
+          storyId: storyThemes.storyId,
+          themeId: storyThemes.themeId,
+          confidence: storyThemes.confidence,
+          assignedAt: storyThemes.assignedAt,
+        })
         .from(storyThemes)
-        .where(and(inArray(storyThemes.storyId, ids), linked)),
+        .where(inArray(storyThemes.storyId, ids)),
     ),
   )
-  return (pages as { storyId: number; themeId: number; assignedAt: number }[][]).flat()
+  return (pages as { storyId: number; themeId: number; confidence: number; assignedAt: number }[][]).flat()
 }
 
 /** Hour start of an article's publish time, as queries/rollups.ts buckets it. */
@@ -381,10 +399,7 @@ export const themeMomentum = (currentBucket: number, hours: number) => {
     and ${rollups.bucket} >= ${split - hours * HOUR} and ${rollups.bucket} < ${currentBucket})`
 }
 
-/**
- * Momentum onto themes with a story assigned within both long windows, plus two hours so the last write after that
- * leaves both windows is 0 rather than -100. Older themes keep that 0.
- */
+/** Momentum onto provisional and active themes; merged and closed ones keep their last value. */
 export const writeThemeMomentum = async (db: Db, now: number, windows: { short: number; long: number }) => {
   const currentBucket = Math.floor(now / HOUR) * HOUR
   const updated = await db
@@ -393,7 +408,7 @@ export const writeThemeMomentum = async (db: Db, now: number, windows: { short: 
       momentum24h: themeMomentum(currentBucket, windows.short),
       momentum7d: themeMomentum(currentBucket, windows.long),
     })
-    .where(gte(themes.lastSeen, currentBucket - (2 * windows.long + 2) * HOUR))
+    .where(inArray(themes.status, LIVE))
     .returning({ id: themes.id })
   return { momentumThemes: updated.length }
 }

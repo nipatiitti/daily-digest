@@ -1,9 +1,10 @@
 import { ALERT, DASHBOARD } from "@digest/core"
 import { articleDetail, type Db, matchLogFor, moveArticle, newStoryFromArticle, refreshStoryCounters } from "@digest/db"
-import { error, invalid, redirect } from "@sveltejs/kit"
+import { error, redirect } from "@sveltejs/kit"
 import { z } from "zod"
+import { attempt } from "#lib/forms.ts"
 import { db } from "#lib/server/db.ts"
-import { form, getRequestEvent, query } from "$app/server"
+import { form, query } from "$app/server"
 
 const positiveInt = z.number().int().positive()
 
@@ -16,16 +17,6 @@ export const articlePage = query(positiveInt, async (id) => {
   if (!article) error(404, `No article ${id}`)
   return { article, matches }
 })
-
-/** Runs a write as the signed-in user, turning a helper's Error into a form issue. */
-const attempt = async <T>(run: (by: string) => Promise<T>) => {
-  try {
-    return await run(getRequestEvent().locals.user)
-  } catch (e) {
-    if (e instanceof Error) invalid(e.message)
-    throw e
-  }
-}
 
 /** Counters on the story the article left and the one it joined, as the process stage writes them. */
 const refreshCounters = (d: Db, storyIds: (number | null)[]) => {

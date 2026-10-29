@@ -1,9 +1,10 @@
 import { DASHBOARD } from "@digest/core"
 import { browseTable, editCell, rowById, rowId, type TableMeta, tableCounts, tableMeta } from "@digest/db"
-import { error, invalid } from "@sveltejs/kit"
+import { error } from "@sveltejs/kit"
 import { z } from "zod"
+import { attempt } from "#lib/forms.ts"
 import { db } from "#lib/server/db.ts"
-import { form, getRequestEvent, query } from "$app/server"
+import { form, query } from "$app/server"
 import { browseInput } from "./browse.ts"
 
 const metaOf = (name: string) => tableMeta(name) ?? error(404, `No table ${name}`)
@@ -42,13 +43,8 @@ export const tableRow = query(cell, async ({ table, id }) => {
   return { meta: shape(meta), row }
 })
 
-/** Writes one editable cell as the signed-in user; a helper's Error becomes a form issue, then the row refreshes. */
+/** Writes one editable cell as the signed-in user, then the row refreshes. */
 export const editForm = form(cell.extend({ column: z.string(), value: z.string() }), async (f) => {
-  try {
-    await editCell(db(), metaOf(f.table), f.id, f.column, f.value, getRequestEvent().locals.user)
-  } catch (e) {
-    if (e instanceof Error) invalid(e.message)
-    throw e
-  }
+  await attempt((by) => editCell(db(), metaOf(f.table), f.id, f.column, f.value, by))
   await tableRow({ table: f.table, id: f.id }).refresh()
 })

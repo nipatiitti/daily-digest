@@ -1,6 +1,7 @@
 import { bucketsBetween, DASHBOARD, HOUR_MS, hourBucket, momentum } from "@digest/core"
 import { CATEGORIES, type Db, risingThemes, rollupBuckets, THEME_STATUSES, themeList, themeStreams } from "@digest/db"
 import { z } from "zod"
+import { byKeyBucket } from "#lib/components/format.ts"
 import { RANGES, type Range, rangeToWindow } from "#lib/range.ts"
 import { db } from "#lib/server/db.ts"
 import { query } from "$app/server"
@@ -20,11 +21,11 @@ const withCards = async <T extends { id: number }>(d: Db, rows: T[]) => {
     rollupBuckets(d, "theme", ids.map(String), from, to),
     themeStreams(d, ids),
   ])
-  const got = new Map(spark.map((r) => [`${r.key}/${r.bucket}`, r.articles]))
+  const count = byKeyBucket(spark)
   const hours = bucketsBetween(from, to)
   return rows.map((r) => ({
     ...r,
-    spark: hours.map((b) => got.get(`${r.id}/${b}`) ?? 0),
+    spark: hours.map((b) => count(r.id, b)),
     streams: CATEGORIES.filter((c) => streams.some((s) => s.themeId === r.id && s.category === c)),
   }))
 }

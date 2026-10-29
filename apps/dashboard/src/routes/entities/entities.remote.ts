@@ -1,6 +1,7 @@
 import { bucketsBetween, DASHBOARD, HOUR_MS, hourBucket } from "@digest/core"
 import { entityList, rollupBuckets } from "@digest/db"
 import { z } from "zod"
+import { byKeyBucket } from "#lib/components/format.ts"
 import { db } from "#lib/server/db.ts"
 import { query } from "$app/server"
 
@@ -19,7 +20,7 @@ export const entityRows = query(search, async (q) => {
     from,
     to,
   )
-  const got = new Map(spark.map((r) => [`${r.key}/${r.bucket}`, r.articles]))
+  const count = byKeyBucket(spark)
   const hours = bucketsBetween(from, to)
-  return rows.map((r) => ({ ...r, spark: hours.map((b) => got.get(`${r.id}/${b}`) ?? 0) }))
+  return rows.map((r) => ({ ...r, spark: hours.map((b) => count(r.id, b)) }))
 })

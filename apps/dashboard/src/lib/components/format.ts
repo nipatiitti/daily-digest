@@ -22,5 +22,11 @@ export const fmtInt = (n: number) => {
   return r < 0 ? `−${digits}` : digits
 }
 
+/** Article counts from rollup rows, looked up by key and bucket; 0 for a missing row. */
+export const byKeyBucket = (rows: { key: string; bucket: number; articles: number }[]) => {
+  const got = new Map(rows.map((r) => [`${r.key}/${r.bucket}`, r.articles]))
+  return (key: string | number, bucket: number) => got.get(`${key}/${bucket}`) ?? 0
+}
+
 /** "SIG-0412". */
 export const padId = (prefix: string, id: number) => `${prefix}-${String(id).padStart(4, "0")}`

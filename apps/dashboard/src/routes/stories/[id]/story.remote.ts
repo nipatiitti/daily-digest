@@ -29,11 +29,12 @@ import {
   storyEntityList,
   storyThemeChips,
 } from "@digest/db"
-import { error, invalid } from "@sveltejs/kit"
+import { error } from "@sveltejs/kit"
 import { z } from "zod"
+import { attempt } from "#lib/forms.ts"
 import { DAY_MS } from "#lib/range.ts"
 import { db } from "#lib/server/db.ts"
-import { form, getRequestEvent, query } from "$app/server"
+import { form, query } from "$app/server"
 
 /** IDs and day counts. */
 const positiveInt = z.number().int().positive()
@@ -145,14 +146,9 @@ export const storyPage = query(positiveInt, async (id) => {
   }
 })
 
-/** Runs a write as the signed-in user; a helper's Error becomes a form issue, then the page refreshes. */
+/** A write, then the page refreshes. */
 const write = async (id: number, run: (by: string) => Promise<unknown>) => {
-  try {
-    await run(getRequestEvent().locals.user)
-  } catch (e) {
-    if (e instanceof Error) invalid(e.message)
-    throw e
-  }
+  await attempt(run)
   await storyPage(id).refresh()
 }
 

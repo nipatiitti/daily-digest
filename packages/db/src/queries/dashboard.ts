@@ -670,7 +670,7 @@ export const themeDetail = async (db: Db, id: number, o: { stories: number; enti
       .from(storyThemes)
       .innerJoin(stories, eq(stories.id, storyThemes.storyId))
       .where(linkedStories)
-      .orderBy(desc(stories.firstSeen))
+      .orderBy(desc(storyThemes.assignedAt))
       .limit(o.stories),
     db
       .select({ storyId: stories.id, title: stories.title, at: storyThemes.assignedAt })
