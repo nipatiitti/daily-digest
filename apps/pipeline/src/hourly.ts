@@ -2,15 +2,17 @@ import type { Db } from "@digest/db"
 import { entitiesStep } from "./hourly/entities.ts"
 import { momentumStep } from "./hourly/momentum.ts"
 import { rollupStep } from "./hourly/rollups.ts"
+import { themesStep } from "./hourly/themes.ts"
 import type { llmFor } from "./llm.ts"
 
 type Step = { name: string; run: () => Promise<Record<string, number>> }
 
 /** Hourly loop at minute 0. Steps run in order; one failing is logged and the rest still run. */
-export const runHourly = async (_env: Env, db: Db, _llm: ReturnType<typeof llmFor>, now: number) => {
+export const runHourly = async (env: Env, db: Db, llm: ReturnType<typeof llmFor>, now: number) => {
   const steps: Step[] = [
     { name: "rollups", run: () => rollupStep(db, now) },
     { name: "entities", run: () => entitiesStep(db, now) },
+    { name: "themes", run: () => themesStep(env, db, llm, now) },
     { name: "momentum", run: () => momentumStep(db, now) },
   ]
   for (const step of steps) {

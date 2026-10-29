@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 10
+export const CONFIG_VERSION = 11
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -188,6 +188,8 @@ export const THEMES = {
   rescanHours: 1,
   /** The first run themes stories this far back; later runs never reach further. */
   backfillDays: 14,
+  /** Nearest themes Sonnet sees when naming a proposal, so it can merge a duplicate instead. */
+  namingNearest: 3,
 }
 
 /** Holt linear forecast over hourly counts. */

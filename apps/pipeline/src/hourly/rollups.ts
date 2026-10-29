@@ -2,11 +2,13 @@ import { FETCH, HOUR_MS, HOURLY, hourBucket } from "@digest/core"
 import {
   type Db,
   entityBucketGroups,
+  ROLLUP_KINDS,
   type Rollup,
   type RollupKind,
   rollupStart,
   sourceBucketGroups,
   storyBucketGroups,
+  themeBucketGroups,
   upsertRollups,
 } from "@digest/db"
 
@@ -14,10 +16,10 @@ const COUNTS = ["articles", "origins", "newStories", "scoreSum", "scoreN"] as co
 type Counts = Partial<Pick<Rollup, (typeof COUNTS)[number]>>
 
 /**
- * Recount desk, stream, source, story and entity buckets from the last HOURLY.recomputeBuckets hours, or further back
- * to the oldest article fetched or placed since the last run (late items, backlogs, requeues, missed crons). Desk and
- * stream fold the per-story groups, so a story's score and newness count once per bucket however many articles it had.
- * The entities step recounts older entity buckets when it links a story. Theme buckets come in a later slice.
+ * Recount desk, stream, source, story, entity and theme buckets from the last HOURLY.recomputeBuckets hours, or
+ * further back to the oldest article fetched or placed since the last run (late items, backlogs, requeues, missed
+ * crons). Desk and stream fold the per-story groups, so a story's score and newness count once per bucket however many
+ * articles it had. The entities and themes steps recount older buckets of the entities and themes they link a story to.
  */
 export const rollupStep = async (db: Db, now: number) => {
   const to = hourBucket(now) + HOUR_MS
@@ -33,10 +35,11 @@ export const rollupStep = async (db: Db, now: number) => {
 }
 
 const rollupWindow = async (db: Db, now: number, from: number, to: number) => {
-  const [storyGroups, sourceGroups, entityGroups] = await Promise.all([
+  const [storyGroups, sourceGroups, entityGroups, themeGroups] = await Promise.all([
     storyBucketGroups(db, from, to),
     sourceBucketGroups(db, from, to),
     entityBucketGroups(db, from, to),
+    themeBucketGroups(db, from, to),
   ])
 
   const rows = new Map<string, Rollup>()
@@ -71,7 +74,10 @@ const rollupWindow = async (db: Db, now: number, from: number, to: number) => {
   for (const g of entityGroups) {
     add(g.bucket, "entity", String(g.entityId), { articles: g.articles, origins: g.origins })
   }
+  for (const g of themeGroups) {
+    add(g.bucket, "theme", String(g.themeId), { articles: g.articles, origins: g.origins })
+  }
 
-  await upsertRollups(db, [...rows.values()], { kinds: ["desk", "stream", "source", "story", "entity"], from, to })
+  await upsertRollups(db, [...rows.values()], { kinds: [...ROLLUP_KINDS], from, to })
   return rows.size
 }

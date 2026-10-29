@@ -28,8 +28,9 @@ working rules.
 ```text
 apps/
   pipeline/     Worker: minute cron, fetch-q + process-q consumers, StoryEval + Digest Workflows, maintenance cron
-                hourly loop: rollups, entities (fold extraction names into `entities` + `story_entities`), momentum
-                themes (planned): embed new stories, Haiku joins one to a candidate theme or proposes one, Sonnet names or merges it
+                hourly loop: rollups, entities (fold extraction names into `entities` + `story_entities`), themes, momentum
+                themes: embed newly extracted stories, Haiku joins each to a candidate theme or proposes one, Sonnet names or merges it,
+                then provisional themes with enough stories or score turn active and quiet ones close
   ingress/      Worker: grammY webhook (hooks.dd.nipatiitti.fi, outside Access)
   dashboard/    SvelteKit 3 on adapter-cloudflare (Workers Static Assets), dd.nipatiitti.fi behind Access; remote functions only, bindings from cloudflare:workers
 packages/

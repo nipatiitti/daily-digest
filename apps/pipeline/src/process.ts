@@ -48,7 +48,7 @@ type Neighbour = {
 /** Articles already handled in this batch, so same-batch stories match before Vectorize has indexed them. */
 type Done = { article: ProcessArticle; vector: number[]; storyId: number; originId: number | null }
 
-const embed = async (ai: Ai, texts: string[]): Promise<number[][]> => {
+export const embed = async (ai: Ai, texts: string[]): Promise<number[][]> => {
   const out = (await ai.run(EMBED.model, { text: texts, truncate_inputs: true })) as { data?: number[][] }
   if (!out.data || out.data.length !== texts.length)
     throw new Error(`embedding returned ${out.data?.length ?? 0} vectors`)
