@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 4
+export const CONFIG_VERSION = 5
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -156,4 +156,16 @@ export const LAMPS = {
   evalBacklogAlert: 20,
   /** Spend lamp: stale at this percent of DAILY_SPEND_CAP_USD, alert at 100. */
   spendStalePct: 80,
+}
+
+/** Dashboard front page and story list. */
+export const DASHBOARD = {
+  /** Points in a sparkline: readouts split their window into this many, story cards show this many hours. */
+  readoutSparkPoints: 24,
+  /** Stories on the front page, the lead included. */
+  topStories: 7,
+  chartHeight: 340,
+  storiesPageSize: 50,
+  /** Facts listed under the lead story. */
+  leadFacts: 5,
 }
