@@ -20,6 +20,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm"
+import { alias } from "drizzle-orm/sqlite-core"
 import { type Db, runBatch } from "../client.ts"
 import {
   actions,
@@ -703,4 +704,70 @@ export const themeDetail = async (db: Db, id: number, o: { stories: number; enti
       .limit(o.rows),
   ])
   return { stories: await withStoryCounts(db, storyRows), joins, entities: entityRows, events }
+}
+
+type Pair = { source: number; target: number; shared: number }
+
+/**
+ * The front page network: up to `limit` active stories with an article since `from` (as rankedStories), most articles
+ * first, and every pair of them sharing linked unmerged signals or unmerged entities, the lower story id as `source`.
+ * A link's weight is the shared count up to `maxWeight`, and it keeps one shared signal, else one shared entity key,
+ * to link to. The pairs select the stories as a subquery rather than an ID list, and one batch reads all three, so
+ * every link joins two of the returned stories.
+ */
+export const storyNetwork = async (db: Db, o: { from: number; limit: number; maxWeight: number }) => {
+  const nodes = db
+    .select({
+      id: stories.id,
+      category: stories.category,
+      title: stories.title,
+      articles: sql<number>`count(*)`.as("articles"),
+    })
+    .from(stories)
+    .innerJoin(articles, eq(articles.storyId, stories.id))
+    .where(and(eq(stories.status, "active"), gte(stories.lastArticleAt, o.from)))
+    .groupBy(stories.id)
+    .orderBy(desc(sql`count(*)`), stories.id)
+    .limit(o.limit)
+  const top = nodes.as("top")
+  const ids = db.select({ id: top.id }).from(top)
+  const [a, b] = [alias(storyThemes, "a"), alias(storyThemes, "b")]
+  const themePairs = db
+    .select({ source: a.storyId, target: b.storyId, shared: count(), themeId: min(a.themeId) })
+    .from(a)
+    .innerJoin(b, and(eq(b.themeId, a.themeId), lt(a.storyId, b.storyId)))
+    .innerJoin(themes, eq(themes.id, a.themeId))
+    .where(
+      and(
+        gt(a.confidence, 0),
+        gt(b.confidence, 0),
+        ne(themes.status, "merged"),
+        inArray(a.storyId, ids),
+        inArray(b.storyId, ids),
+      ),
+    )
+    .groupBy(a.storyId, b.storyId)
+  const [e, f] = [alias(storyEntities, "e"), alias(storyEntities, "f")]
+  const entityPairs = db
+    .select({ source: e.storyId, target: f.storyId, shared: count(), key: min(entities.key) })
+    .from(e)
+    .innerJoin(f, and(eq(f.entityId, e.entityId), lt(e.storyId, f.storyId)))
+    .innerJoin(entities, eq(entities.id, e.entityId))
+    .where(and(isNull(entities.mergedInto), inArray(e.storyId, ids), inArray(f.storyId, ids)))
+    .groupBy(e.storyId, f.storyId)
+  const [nodeRows, themeRows, entityRows] = await db.batch([nodes, themePairs, entityPairs])
+  const links = new Map<string, Pair & { themeId: number | null; entityKey: string | null }>()
+  const add = ({ source, target, shared }: Pair, themeId: number | null, entityKey: string | null) => {
+    const l = links.get(`${source}/${target}`) ?? { source, target, shared: 0, themeId: null, entityKey: null }
+    l.shared += shared
+    l.themeId ??= themeId
+    l.entityKey ??= entityKey
+    links.set(`${source}/${target}`, l)
+  }
+  for (const r of themeRows) add(r, r.themeId, null)
+  for (const r of entityRows) add(r, null, r.key)
+  return {
+    nodes: nodeRows,
+    links: [...links.values()].map(({ shared, ...l }) => ({ ...l, weight: Math.min(o.maxWeight, shared) })),
+  }
 }

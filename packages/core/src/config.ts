@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 12
+export const CONFIG_VERSION = 13
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -246,4 +246,23 @@ export const DASHBOARD = {
   exportMaxRows: 10_000,
   /** Rows per page in the table browser. */
   browsePageSize: 100,
+  /** Stories in the front page network, most articles first, and how many of them carry a label without hovering. */
+  networkNodes: 60,
+  networkLabels: 10,
+  /** A network link's weight is the signals and entities its two stories share, capped here. */
+  networkMaxLinkWeight: 3,
+  /** The network's layout box, which the client draws as its viewBox, and node radii by article count (sqrt scale). */
+  networkWidth: 960,
+  networkHeight: 480,
+  networkMinRadius: 4,
+  networkMaxRadius: 20,
+  /**
+   * Force layout: a fixed tick count, the length of a weight 1 link (heavier links are shorter by their weight), node
+   * repulsion, the pull towards the centre and the gap kept between circles.
+   */
+  networkTicks: 300,
+  networkLinkDistance: 90,
+  networkCharge: -60,
+  networkGravity: 0.05,
+  networkCollidePadding: 3,
 }

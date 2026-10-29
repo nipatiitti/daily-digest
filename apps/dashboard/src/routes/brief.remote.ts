@@ -1,5 +1,14 @@
 import { env } from "cloudflare:workers"
-import { bucketsBetween, DASHBOARD, FORECAST, HOUR_MS, holtLinear, hourBucket, momentum } from "@digest/core"
+import {
+  bucketsBetween,
+  DASHBOARD,
+  FORECAST,
+  HOUR_MS,
+  holtLinear,
+  hourBucket,
+  layoutNetwork,
+  momentum,
+} from "@digest/core"
 import {
   activeStoryTotals,
   CATEGORIES,
@@ -18,6 +27,7 @@ import {
   spendSince,
   staleSources,
   storyFacts,
+  storyNetwork,
   storyThemeChips,
   themeById,
   themeList,
@@ -201,6 +211,22 @@ export const topStories = query(rangeSchema, async (range) => {
     stories: stories.map((s) => ({ ...s, spark: hours.map((b) => count(s.id, b)), themes: themes.get(s.id) ?? [] })),
     facts,
   }
+})
+
+/**
+ * The story network for the range, laid out here in the unit box. The seed is the range and the hour, so reloads
+ * within the hour draw the same picture.
+ */
+export const network = query(rangeSchema, async (range) => {
+  const now = Date.now()
+  const { nodes, links } = await storyNetwork(db(), {
+    from: rangeToWindow(range, now).from,
+    limit: DASHBOARD.networkNodes,
+    maxWeight: DASHBOARD.networkMaxLinkWeight,
+  })
+  const seed = (hourBucket(now) / HOUR_MS) * RANGES.length + RANGES.indexOf(range)
+  const weighted = nodes.map((n) => ({ ...n, weight: n.articles, stream: streamSlot(n.category) }))
+  return { nodes: layoutNetwork(weighted, links, seed), links }
 })
 
 /** The quiet row at the foot of the page, values already formatted. */

@@ -1,6 +1,6 @@
 <script lang="ts">
 import { DASHBOARD } from "@digest/core"
-import { Sparkline, type Stream, TrendChart } from "#lib/charts/index.ts"
+import { Sparkline, StoryNetwork, type Stream, TrendChart } from "#lib/charts/index.ts"
 import {
   Delta,
   FactRow,
@@ -15,7 +15,7 @@ import {
 } from "#lib/components/index.ts"
 import { parseRange, RANGES } from "#lib/range.ts"
 import { page } from "$app/state"
-import { opsStrip, readouts, seriesFor, seriesSearch, streamSeries, topStories } from "./brief.remote.ts"
+import { network, opsStrip, readouts, seriesFor, seriesSearch, streamSeries, topStories } from "./brief.remote.ts"
 import { signalBoard } from "./signals/signals.remote.ts"
 
 type Top = Awaited<ReturnType<typeof topStories>>
@@ -196,6 +196,14 @@ const today = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "U
       {:else}
         <p class="dd-body text-ink-muted">No active signals yet.</p>
       {/if}
+    </svelte:boundary>
+  </section>
+
+  <section class="hidden gap-4 rounded-lg border border-line bg-surface p-6 shadow-sm md:grid">
+    <h2 class="dd-label">How stories connect</h2>
+    <svelte:boundary pending={loading} {failed}>
+      {@const net = await network(range)}
+      <StoryNetwork nodes={net.nodes} links={net.links} title="How stories connect" />
     </svelte:boundary>
   </section>
 
