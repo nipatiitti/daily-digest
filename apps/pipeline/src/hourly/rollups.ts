@@ -1,4 +1,4 @@
-import { HOUR_MS, HOURLY, hourBucket } from "@digest/core"
+import { FETCH, HOUR_MS, HOURLY, hourBucket } from "@digest/core"
 import {
   type Db,
   type Rollup,
@@ -13,20 +13,22 @@ const COUNTS = ["articles", "origins", "newStories", "scoreSum", "scoreN"] as co
 type Counts = Partial<Pick<Rollup, (typeof COUNTS)[number]>>
 
 /**
- * Recount the last HOURLY.recomputeBuckets hour buckets for desk, stream, source and story. Desk and stream fold
- * the per-story groups, so a story's score and newness count once per bucket however many articles it had.
+ * Recount desk, stream, source and story buckets from the last HOURLY.recomputeBuckets hours, or further back to the
+ * oldest article fetched or placed since the last run (late items, backlogs, requeues, missed crons). Desk and stream
+ * fold the per-story groups, so a story's score and newness count once per bucket however many articles it had.
  * Entity and theme buckets come from their own steps in later slices.
  */
 export const rollupStep = async (db: Db, now: number) => {
   const to = hourBucket(now) + HOUR_MS
   const recent = to - HOURLY.recomputeBuckets * HOUR_MS
-  // First run on an empty table: backfill from the oldest article, one day per batch.
-  const start = await rollupStart(db)
+  // On an empty table oldestLate is the oldest article, so the first run backfills. One day per batch.
+  const { lastBucket, oldestLate } = await rollupStart(db, now, FETCH.maxItemAgeDays * 24 * HOUR_MS)
+  const start = Math.min(recent, hourBucket(oldestLate ?? recent))
   let rows = 0
-  for (let from = start === null ? recent : hourBucket(start); from < to; from += 24 * HOUR_MS) {
+  for (let from = start; from < to; from += 24 * HOUR_MS) {
     rows += await rollupWindow(db, now, from, Math.min(from + 24 * HOUR_MS, to))
   }
-  return { rows, backfilled: start === null ? 0 : 1 }
+  return { rows, fromHoursAgo: (to - start) / HOUR_MS, backfilled: lastBucket === null ? 1 : 0 }
 }
 
 const rollupWindow = async (db: Db, now: number, from: number, to: number) => {
@@ -57,7 +59,7 @@ const rollupWindow = async (db: Db, now: number, from: number, to: number) => {
     const articles = { articles: g.articles, origins: g.origins }
     const newStories = g.firstSeen !== null && hourBucket(g.firstSeen) === g.bucket ? 1 : 0
     const score = g.score === null ? {} : { scoreSum: g.score, scoreN: 1 }
-    add(g.bucket, "desk", "desk", { ...articles, newStories })
+    add(g.bucket, "desk", "desk", { ...articles, newStories, ...score })
     add(g.bucket, "stream", g.category, { ...articles, newStories, ...score })
     if (g.storyId !== null) add(g.bucket, "story", String(g.storyId), { ...articles, ...score })
   }

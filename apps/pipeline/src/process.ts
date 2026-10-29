@@ -1,4 +1,5 @@
 import {
+  ALERT,
   articleSetHash,
   cosine,
   decideMatch,
@@ -208,7 +209,6 @@ export const processArticles = async (env: ProcessEnv, db: Db, llm: Llm | null, 
     matches.push({ articleId: article.id, storyId, how: p.how, cosine: p.cosine, candidateStoryId: p.candidateStoryId })
     log("matched", { articleId: article.id, storyId, how: p.how, nearest: Math.max(0, ...near.map((n) => n.score)) })
   }
-  await logMatch(db, matches)
 
   await env.VECTORS.upsert(
     done.map((d) => ({
@@ -217,9 +217,17 @@ export const processArticles = async (env: ProcessEnv, db: Db, llm: Llm | null, 
       metadata: { published_at: d.article.publishedAt, category: d.article.category, source_id: d.article.sourceId },
     })),
   )
+  // The match log only explains placements; it never blocks counters or StoryEval.
+  try {
+    await logMatch(db, matches)
+  } catch (e) {
+    log("match_log_failed", { error: String(e) })
+  }
 
   for (const storyId of touched) {
-    const counters = await refreshStoryCounters(db, storyId, now)
+    const counters = await refreshStoryCounters(db, storyId, now, {
+      velocityWindowMinutes: ALERT.worldVelocityWindowMinutes,
+    })
     if (!counters) continue
     const reasons = clearsEvidenceBar(counters)
     if (reasons.length === 0) {

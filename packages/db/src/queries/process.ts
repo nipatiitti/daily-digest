@@ -88,14 +88,28 @@ export const assignArticle = (
     .where(eq(articles.id, id))
 
 /** Recompute a story's counters from its articles (code, never the LLM). */
-export const refreshStoryCounters = async (db: Db, storyId: number, now: number) => {
+/**
+ * Recompute a story's counters from its articles. With `velocityWindowMinutes`, origins30m (independent origins in
+ * that window, read by the alert gate) is written too; without it the column is left for the hourly decay.
+ */
+export const refreshStoryCounters = async (
+  db: Db,
+  storyId: number,
+  now: number,
+  opts?: { velocityWindowMinutes: number },
+) => {
   const sixHoursAgo = now - 6 * 3_600_000
+  const velocitySince = opts ? now - opts.velocityWindowMinutes * 60_000 : null
   const [agg] = await db
     .select({
       uniqueDomains: sql<number>`count(distinct ${articles.domain})`,
       independentOrigins: sql<number>`sum(case when ${articles.originId} is null then 1 else 0 end)`,
       authoritativeCount: sql<number>`sum(case when ${articles.originId} is null and ${sources.authoritative} then 1 else 0 end)`,
       origins6h: sql<number>`sum(case when ${articles.originId} is null and ${articles.publishedAt} >= ${sixHoursAgo} then 1 else 0 end)`,
+      origins30m:
+        velocitySince === null
+          ? sql<null>`null`
+          : sql<number>`sum(case when ${articles.originId} is null and ${articles.publishedAt} >= ${velocitySince} then 1 else 0 end)`,
       finnishSources: sql<number>`sum(case when ${sources.lang} = 'fi' then 1 else 0 end)`,
       firstSeen: sql<number>`min(${articles.publishedAt})`,
       lastArticleAt: sql<number>`max(${articles.publishedAt})`,
@@ -112,6 +126,7 @@ export const refreshStoryCounters = async (db: Db, storyId: number, now: number)
       independentOrigins: agg.independentOrigins,
       authoritativeCount: agg.authoritativeCount,
       origins6h: agg.origins6h,
+      ...(agg.origins30m === null ? {} : { origins30m: agg.origins30m }),
       firstSeen: agg.firstSeen,
       lastArticleAt: agg.lastArticleAt,
     })

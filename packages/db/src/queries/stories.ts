@@ -6,6 +6,7 @@ import {
   type FactStatus,
   facts,
   type Rubric,
+  rollups,
   sources,
   stories,
   storyVulns,
@@ -211,7 +212,30 @@ export const unassignedArticleCount = async (db: Db) => {
 export const mergeStories = async (db: Db, fromId: number, intoId: number, now: number) => {
   if (fromId === intoId) return
   const links = await db.select({ cveId: storyVulns.cveId }).from(storyVulns).where(eq(storyVulns.storyId, fromId))
-  await db.update(articles).set({ storyId: intoId }).where(eq(articles.storyId, fromId))
+  // Articles and their story rollup rows move together, so the merged story's history follows it.
+  const [from, into] = [String(fromId), String(intoId)]
+  await runBatch(db, [
+    db.update(articles).set({ storyId: intoId }).where(eq(articles.storyId, fromId)),
+    // Columns in table order. A parameterised db.run(sql) can't go in a D1 batch, so the select is the raw part.
+    db
+      .insert(rollups)
+      .select(
+        sql`select bucket, 'story', ${into}, articles, origins, new_stories, score_sum, score_n, ${now}
+          from ${rollups} where kind = 'story' and key = ${from}`,
+      )
+      .onConflictDoUpdate({
+        target: [rollups.bucket, rollups.kind, rollups.key],
+        set: {
+          articles: sql`rollups.articles + excluded.articles`,
+          origins: sql`rollups.origins + excluded.origins`,
+          newStories: sql`rollups.new_stories + excluded.new_stories`,
+          scoreSum: sql`excluded.score_sum`,
+          scoreN: sql`excluded.score_n`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+      }),
+    db.delete(rollups).where(and(eq(rollups.kind, "story"), eq(rollups.key, from))),
+  ])
   await linkStoryVulns(
     db,
     intoId,

@@ -86,12 +86,28 @@ export const upsertRollups = async (
   ])
 }
 
-/** Where rollup history starts: null when the table is empty, else the hour of the oldest article. */
-export const rollupStart = async (db: Db) => {
-  const [r] = await db.select({ n: sql<number>`count(*)` }).from(rollups)
-  if ((r?.n ?? 0) > 0) return null
-  const [a] = await db.select({ oldest: sql<number | null>`min(${articles.publishedAt})` }).from(articles)
-  return a?.oldest ?? null
+/**
+ * Where the rollup recount should reach back to. `lastBucket` is the newest rollup bucket (null on an empty table).
+ * `oldestLate` is the oldest publish time among articles fetched or embedded since the hour before `lastBucket` and
+ * published within `maxAgeMs` (so a late article, a backlog or a requeue gets its old bucket recounted); on an empty
+ * table it is the oldest article, for the backfill. Both reads are index-bounded.
+ */
+export const rollupStart = async (db: Db, now: number, maxAgeMs: number) => {
+  const [r] = await db.select({ lastBucket: sql<number | null>`max(${rollups.bucket})` }).from(rollups)
+  const lastBucket = r?.lastBucket ?? null
+  const since = lastBucket === null ? null : lastBucket - HOUR
+  const [a] = await db
+    .select({ oldestLate: sql<number | null>`min(${articles.publishedAt})` })
+    .from(articles)
+    .where(
+      since === null
+        ? undefined
+        : and(
+            gte(articles.publishedAt, now - maxAgeMs),
+            or(gte(articles.fetchedAt, since), gte(articles.embeddedAt, since)),
+          ),
+    )
+  return { lastBucket, oldestLate: a?.oldestLate ?? null }
 }
 
 /** Rows for several keys of one kind in [from, to), ordered by key then bucket. Keep keys under ~95 (bound params). */
@@ -125,19 +141,24 @@ const storyMomentum = (currentBucket: number, hours: number) => {
 }
 
 /**
- * Write momentum onto active stories (from story rollups), origins in the last 30 minutes onto stories with a recent
- * article or a stale nonzero count (from articles, since buckets are hourly), and items in the last 24 hours plus the
- * current partial hour onto enabled sources (from source rollups). Returns how many rows each statement touched.
+ * Write momentum onto active stories (from story rollups), origins in the velocity window onto stories with a recent
+ * article or a stale nonzero count (from articles, since buckets are hourly; the process step keeps it fresh and this
+ * decays it to 0), and items in the last 24 hours plus the current partial hour onto enabled sources (from source
+ * rollups). Returns how many rows each statement touched.
  */
-export const writeMomentum = async (db: Db, now: number, windowHours: { short: number; long: number }) => {
+export const writeMomentum = async (
+  db: Db,
+  now: number,
+  opts: { windows: { short: number; long: number }; velocityWindowMinutes: number },
+) => {
   const currentBucket = Math.floor(now / HOUR) * HOUR
-  const since30m = now - 30 * 60_000
+  const velocitySince = now - opts.velocityWindowMinutes * 60_000
   const results = await runBatch(db, [
     db
       .update(stories)
       .set({
-        momentum24h: storyMomentum(currentBucket, windowHours.short),
-        momentum7d: storyMomentum(currentBucket, windowHours.long),
+        momentum24h: storyMomentum(currentBucket, opts.windows.short),
+        momentum7d: storyMomentum(currentBucket, opts.windows.long),
       })
       .where(eq(stories.status, "active"))
       .returning({ id: stories.id }),
@@ -145,9 +166,11 @@ export const writeMomentum = async (db: Db, now: number, windowHours: { short: n
       .update(stories)
       .set({
         origins30m: sql`(select count(*) from ${articles} where ${articles.storyId} = ${stories.id}
-          and ${articles.originId} is null and ${articles.publishedAt} >= ${since30m})`,
+          and ${articles.originId} is null and ${articles.publishedAt} >= ${velocitySince})`,
       })
-      .where(and(eq(stories.status, "active"), or(gte(stories.lastArticleAt, since30m), gt(stories.origins30m, 0))))
+      .where(
+        and(eq(stories.status, "active"), or(gte(stories.lastArticleAt, velocitySince), gt(stories.origins30m, 0))),
+      )
       .returning({ id: stories.id }),
     db
       .update(sources)
