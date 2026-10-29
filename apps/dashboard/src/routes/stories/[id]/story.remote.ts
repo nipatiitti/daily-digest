@@ -27,6 +27,7 @@ import {
   type Story,
   storyDetail,
   storyEntityList,
+  storyThemeChips,
 } from "@digest/db"
 import { error, invalid } from "@sveltejs/kit"
 import { z } from "zod"
@@ -93,10 +94,11 @@ export const storyPage = query(positiveInt, async (id) => {
   if (!story) error(404, `No story ${id}`)
   const now = Date.now()
   const from = Math.max(hourBucket(story.firstSeen), hourBucket(now) - DASHBOARD.storyChartDays * DAY_MS)
-  const [detail, rollup, entities] = await Promise.all([
+  const [detail, rollup, entities, themes] = await Promise.all([
     storyDetail(d, id, DASHBOARD.storyPageRows),
     rollupSeries(d, "story", String(id), from, now),
     storyEntityList(d, id, DASHBOARD.storyPageRows),
+    storyThemeChips(d, [id]),
   ])
 
   const perHour = new Map(rollup.map((r) => [r.bucket, r.articles]))
@@ -115,6 +117,7 @@ export const storyPage = query(positiveInt, async (id) => {
   return {
     story,
     entities,
+    themes: themes.get(id) ?? [],
     follow: detail.follow,
     articlesPerHour: {
       labels: hours.map((b) => new Date(b).toISOString()),

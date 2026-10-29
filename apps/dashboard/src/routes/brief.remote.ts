@@ -6,6 +6,7 @@ import {
   type Db,
   deskSlices,
   entityByKey,
+  entityList,
   evaluationSlices,
   firstDeskBucket,
   opsCounts,
@@ -17,6 +18,9 @@ import {
   spendSince,
   staleSources,
   storyFacts,
+  storyThemeChips,
+  themeById,
+  themeList,
 } from "@digest/db"
 import { z } from "zod"
 import { fmtInt } from "#lib/components/format.ts"
@@ -151,18 +155,34 @@ export const streamSeries = query(rangeSchema, async (range) => {
   }
 })
 
-/** One entity's articles per bucket, lined up with streamSeries; null for an unknown key. */
+/** One entity's or theme's articles per bucket, lined up with streamSeries; null for an unknown key. */
 export const seriesFor = query(
-  z.object({ kind: z.literal("entity"), key: z.string(), range: rangeSchema }),
+  z.object({ kind: z.enum(["entity", "theme"]), key: z.string(), range: rangeSchema }),
   async ({ kind, key, range }) => {
     const d = db()
-    const entity = await entityByKey(d, key)
-    if (!entity) return null
+    const found =
+      kind === "entity" ? await entityByKey(d, key) : /^\d+$/.test(key) ? await themeById(d, Number(key)) : null
+    if (!found) return null
     const { counts, values } = await chartWindow(d, range, Date.now())
-    const count = await counts(kind, [String(entity.id)])
-    return { key, name: entity.name, stream: "other" as const, values: values((b) => count(entity.id, b)) }
+    const count = await counts(kind, [String(found.id)])
+    return { key, name: found.name, stream: "other" as const, values: values((b) => count(found.id, b)) }
   },
 )
+
+/** Entities and signals matching a name, as series picker hits keyed `entity:<key>` and `theme:<id>`. */
+export const seriesSearch = query(z.string().trim().max(200), async (q) => {
+  if (!q) return []
+  const d = db()
+  const limit = DASHBOARD.seriesPickerHits
+  const [ents, themes] = await Promise.all([
+    entityList(d, { q, limit }),
+    themeList(d, { statuses: ["active", "closed"], hours: 24, now: Date.now(), order: "recent", limit, q }),
+  ])
+  return [
+    ...themes.map((t) => ({ key: `theme:${t.id}`, name: t.name, kind: "signal" })),
+    ...ents.map((e) => ({ key: `entity:${e.key}`, name: e.name, kind: e.kind })),
+  ]
+})
 
 /** The best active stories with an article in the range, each with an hourly spark, and the lead's facts. */
 export const topStories = query(rangeSchema, async (range) => {
@@ -173,18 +193,17 @@ export const topStories = query(rangeSchema, async (range) => {
   const sparkFrom = sparkTo - N * HOUR_MS
   const hours = bucketsBetween(sparkFrom, sparkTo)
   const lead = stories[0]
-  const [rows, facts] = await Promise.all([
-    rollupBuckets(
-      d,
-      "story",
-      stories.map((s) => String(s.id)),
-      sparkFrom,
-      sparkTo,
-    ),
+  const ids = stories.map((s) => s.id)
+  const [rows, facts, themes] = await Promise.all([
+    rollupBuckets(d, "story", ids.map(String), sparkFrom, sparkTo),
     lead ? storyFacts(d, lead.id, DASHBOARD.leadFacts) : [],
+    storyThemeChips(d, ids),
   ])
   const count = byKeyBucket(rows)
-  return { stories: stories.map((s) => ({ ...s, spark: hours.map((b) => count(s.id, b)) })), facts }
+  return {
+    stories: stories.map((s) => ({ ...s, spark: hours.map((b) => count(s.id, b)), themes: themes.get(s.id) ?? [] })),
+    facts,
+  }
 })
 
 /** The quiet row at the foot of the page, values already formatted. */

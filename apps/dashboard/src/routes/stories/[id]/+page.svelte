@@ -10,6 +10,7 @@ import {
   fmtTime,
   padId,
   SeverityBadge,
+  SignalChip,
   StreamTag,
   streamSlot,
 } from "#lib/components/index.ts"
@@ -167,7 +168,13 @@ const noFacts = $derived(p.facts.every((g) => g.rows.length === 0))
         {/each}
       </div>
     {/if}
-    <!-- theme chips: S11a -->
+    {#if p.themes.length}
+      <div class="flex flex-wrap gap-3">
+        {#each p.themes as t (t.id)}
+          <SignalChip id={t.id} name={t.name} pct={t.momentum24h} href="/signals/{t.id}" />
+        {/each}
+      </div>
+    {/if}
     <p class="dd-body">{s.summary ?? "Not evaluated yet."}</p>
     {#if s.whyMatters}<p class="dd-body text-ink-muted">{s.whyMatters}</p>{/if}
     <p class="dd-body-sm text-ink-muted">

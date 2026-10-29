@@ -13,11 +13,14 @@ import {
   sources,
   stories,
   storyEntities,
+  storyThemes,
   type TableMeta,
+  themes,
 } from "../schema/index.ts"
 import { rowById } from "./dashboard.ts"
 import { entityById, refreshEntityCounts, refreshEntityRollups } from "./entities.ts"
 import { getStory, mergeStories, setFactStatus } from "./stories.ts"
+import { mergeTheme, recordThemeEvent, refreshThemeCounts, refreshThemeRollups, themeById } from "./themes.ts"
 
 /** The audit row for a dashboard write, returned unrun so the caller batches it with the write. */
 export const recordAction = (db: Db, action: typeof actions.$inferInsert) => db.insert(actions).values(action)
@@ -304,4 +307,73 @@ export const renameEntity = async (db: Db, id: number, name: string, by: string)
       by,
     }),
   ])
+}
+
+/** A theme that can still be acted on; a missing or merged one is an Error naming it. */
+const liveTheme = async (db: Db, id: number) => {
+  const theme = await themeById(db, id)
+  if (!theme) throw new Error(`Signal ${id} does not exist`)
+  if (theme.status === "merged") throw new Error(`${theme.name} was already merged into signal ${theme.mergedInto}`)
+  return theme
+}
+
+/** The audit row and a theme event, both keeping the old name. */
+export const renameTheme = async (db: Db, id: number, name: string, by: string) => {
+  const theme = await liveTheme(db, id)
+  if (theme.name === name) return
+  const detail = { from: theme.name, to: name }
+  await runBatch(db, [
+    db.update(themes).set({ name }).where(eq(themes.id, id)),
+    recordThemeEvent(db, { themeId: id, kind: "renamed", detailJson: { ...detail, by } }),
+    recordAction(db, { kind: "theme_rename", subjectKind: "theme", subjectId: String(id), detailJson: detail, by }),
+  ])
+}
+
+/** A story joining reopens a closed theme. */
+export const closeTheme = async (db: Db, id: number, by: string) => {
+  const theme = await liveTheme(db, id)
+  if (theme.status === "closed") throw new Error(`${theme.name} is already closed`)
+  const detail = { from: theme.status }
+  await runBatch(db, [
+    db.update(themes).set({ status: "closed" }).where(eq(themes.id, id)),
+    recordThemeEvent(db, { themeId: id, kind: "closed", detailJson: { ...detail, by } }),
+    recordAction(db, { kind: "theme_close", subjectKind: "theme", subjectId: String(id), detailJson: detail, by }),
+  ])
+}
+
+/**
+ * mergeTheme runs its own batch and writes both themes' events, so the audit row goes first, as mergeStory's does,
+ * keeping the source's status. Then the target's rollups are recounted over the source's hours.
+ */
+export const mergeThemeInto = async (db: Db, fromId: number, intoId: number, by: string, now = Date.now()) => {
+  if (fromId === intoId) throw new Error("A signal cannot merge into itself")
+  const [from, into] = await Promise.all([liveTheme(db, fromId), liveTheme(db, intoId)])
+  await recordAction(db, {
+    kind: "theme_merge",
+    subjectKind: "theme",
+    subjectId: String(fromId),
+    detailJson: { into: intoId, fromName: from.name, intoName: into.name, fromStatus: from.status },
+    by,
+  })
+  await mergeTheme(db, fromId, intoId, by)
+  const hour = (ms: number) => Math.floor(ms / HOUR) * HOUR
+  await refreshThemeRollups(db, [intoId], hour(from.firstSeen), hour(now), now)
+}
+
+/**
+ * Nothing is deleted: the link stays with confidence 0, which every reader of links skips, and its old confidence and
+ * author go in the event and the audit row. Then the theme's story count is recounted.
+ */
+export const detachStoryTheme = async (db: Db, themeId: number, storyId: number, by: string) => {
+  const link = and(eq(storyThemes.themeId, themeId), eq(storyThemes.storyId, storyId))
+  const [theme, [row]] = await Promise.all([liveTheme(db, themeId), db.select().from(storyThemes).where(link)])
+  if (!row || row.confidence === 0) throw new Error(`Story ${storyId} is not in ${theme.name}`)
+  const detail = { storyId, confidence: row.confidence, linkedBy: row.by }
+  const subjectId = String(themeId)
+  await runBatch(db, [
+    db.update(storyThemes).set({ confidence: 0 }).where(link),
+    recordThemeEvent(db, { themeId, kind: "detached", detailJson: { ...detail, by } }),
+    recordAction(db, { kind: "theme_detach", subjectKind: "theme", subjectId, detailJson: detail, by }),
+  ])
+  await refreshThemeCounts(db, [themeId])
 }

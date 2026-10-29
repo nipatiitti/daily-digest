@@ -3,6 +3,7 @@ import type { Category } from "@digest/db"
 import type { Snippet } from "svelte"
 import { fmtInt, fmtTime } from "./format.ts"
 import SeverityBadge from "./SeverityBadge.svelte"
+import SignalChip from "./SignalChip.svelte"
 import StreamTag from "./StreamTag.svelte"
 
 type Props = {
@@ -20,11 +21,26 @@ type Props = {
   /** The one most important story on the page. */
   lead?: boolean
   momentum?: Snippet
+  /** Signals the story is in, drawn as chips before `chips`. */
+  themes?: { id: number; name: string; momentum24h: number | null }[]
   chips?: Snippet
   facts?: Snippet
 }
 
-let { id, stream, score, updatedAt, title, summary, stats, lead = false, momentum, chips, facts }: Props = $props()
+let {
+  id,
+  stream,
+  score,
+  updatedAt,
+  title,
+  summary,
+  stats,
+  lead = false,
+  momentum,
+  themes = [],
+  chips,
+  facts,
+}: Props = $props()
 </script>
 
 <article
@@ -44,8 +60,13 @@ let { id, stream, score, updatedAt, title, summary, stats, lead = false, momentu
   </h3>
   <p class={["text-pretty text-ink-muted", lead ? "max-w-[62ch] text-base/[26px]" : "dd-body"]}>{summary}</p>
   <!-- Positioned so links inside sit above the stretched title link. -->
-  {#if chips}
-    <div class="relative flex flex-wrap gap-3">{@render chips()}</div>
+  {#if themes.length || chips}
+    <div class="relative flex flex-wrap gap-3">
+      {#each themes as t (t.id)}
+        <SignalChip id={t.id} name={t.name} pct={t.momentum24h} href="/signals/{t.id}" />
+      {/each}
+      {@render chips?.()}
+    </div>
   {/if}
   <dl class="mt-2 grid grid-cols-[repeat(auto-fit,minmax(96px,1fr))] gap-4 border-t border-line pt-4">
     {#each stats as stat (stat.name)}

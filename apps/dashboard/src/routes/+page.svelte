@@ -4,32 +4,33 @@ import { Sparkline, type Stream, TrendChart } from "#lib/charts/index.ts"
 import {
   Delta,
   FactRow,
+  fmtInt,
+  padId,
   Readout,
   SegmentedControl,
   SeriesPicker,
+  STREAM_NAMES,
   StoryCard,
   streamSlot,
 } from "#lib/components/index.ts"
 import { parseRange, RANGES } from "#lib/range.ts"
 import { page } from "$app/state"
-import { opsStrip, readouts, seriesFor, streamSeries, topStories } from "./brief.remote.ts"
-import { entitySearch } from "./entities/entities.remote.ts"
+import { opsStrip, readouts, seriesFor, seriesSearch, streamSeries, topStories } from "./brief.remote.ts"
+import { signalBoard } from "./signals/signals.remote.ts"
 
 type Top = Awaited<ReturnType<typeof topStories>>
 
 const params = $derived(page.url.searchParams)
 const range = $derived(parseRange(params.get("range")))
-/** Entity keys picked for the big chart, from `?s=entity:<key>`. */
+/** Series picked for the big chart, from `?s=entity:<key>` and `?s=theme:<id>`. */
 const picks = $derived(
-  [
-    ...new Set(
-      params
-        .getAll("s")
-        .filter((s) => s.startsWith("entity:"))
-        .map((s) => s.slice("entity:".length)),
-    ),
-  ].slice(0, DASHBOARD.seriesPickerMax),
+  [...new Set(params.getAll("s").filter((s) => /^(entity|theme):./.test(s)))].slice(0, DASHBOARD.seriesPickerMax),
 )
+/** A pick's kind and key. */
+const pickSeries = (s: string) => {
+  const i = s.indexOf(":")
+  return { kind: s.slice(0, i) as "entity" | "theme", key: s.slice(i + 1) }
+}
 /** Picked series take colour slots 5 to 8, after the four streams. */
 const slot = (i: number) => (5 + i) as Stream
 type Line = { name: string; stream: Stream; values: number[] }
@@ -82,6 +83,7 @@ const today = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "U
       { name: "Origins", value: s.origins },
     ]}
     {lead}
+    themes={s.themes}
     facts={rows.length ? factList : undefined}
   >
     {#snippet momentum()}
@@ -107,8 +109,9 @@ const today = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "U
   </header>
 
   <svelte:boundary pending={loading} {failed}>
-    <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {#each await readouts(range) as r (r.label)}
+    {@const [tiles, board] = await Promise.all([readouts(range), signalBoard(range)])}
+    <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      {#each tiles as r (r.label)}
         <Readout label={r.label} value={r.value} href={r.href}>
           {#snippet foot()}
             {#if r.delta}<Delta {...r.delta} />{/if}
@@ -117,6 +120,12 @@ const today = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "U
           {/snippet}
         </Readout>
       {/each}
+      <Readout label="Signals rising" value={board.rising.value} href="/signals">
+        {#snippet foot()}
+          {#if board.rising.delta}<Delta {...board.rising.delta} />{/if}
+          <span>{board.rising.note}</span>
+        {/snippet}
+      </Readout>
     </section>
   </svelte:boundary>
 
@@ -124,7 +133,7 @@ const today = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "U
     <svelte:boundary pending={loading} {failed}>
       {@const [chart, picked] = await Promise.all([
         streamSeries(range),
-        Promise.all(picks.map((key) => seriesFor({ kind: "entity", key, range }))),
+        Promise.all(picks.map((s) => seriesFor({ ...pickSeries(s), range }))),
       ])}
       {@const title = `Articles per ${chart.bucket} by stream`}
       <h2 class="dd-label">{title}</h2>
@@ -139,8 +148,52 @@ const today = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "U
       <SeriesPicker
         chosen={picks.map((key, i) => ({ key, name: picked[i]?.name ?? key, stream: slot(i) }))}
         max={DASHBOARD.seriesPickerMax}
-        search={entitySearch}
+        search={seriesSearch}
       />
+    </svelte:boundary>
+  </section>
+
+  <section class="grid gap-6">
+    <h2 class="dd-label"><a href="/signals" class="hover:text-ink">Signals</a></h2>
+    <svelte:boundary pending={loading} {failed}>
+      {@const board = await signalBoard(range)}
+      {#if board.cards.length}
+        <ol class="grid gap-4 md:grid-cols-2">
+          {#each board.cards as t (t.id)}
+            <li class="grid content-start gap-2 rounded-lg border border-line bg-surface p-5 shadow-sm">
+              <div class="flex flex-wrap items-center gap-2">
+                <a href="/signals/{t.id}" class="dd-tick">{padId("SIG", t.id)}</a>
+                <Delta pct={t.momentum} suffix={board.suffix} />
+                <ul class="flex gap-1" aria-label="Streams">
+                  {#each t.streams as c (c)}
+                    <li
+                      class="size-2.5 rounded-full"
+                      style:background="var(--stream-{streamSlot(c)})"
+                      title={STREAM_NAMES[c]}
+                    >
+                      <span class="dd-sr-only">{STREAM_NAMES[c]}</span>
+                    </li>
+                  {/each}
+                </ul>
+                <span class="ml-auto">
+                  <Sparkline
+                    values={t.spark}
+                    stream="other"
+                    width={96}
+                    height={24}
+                    label="{t.name}, articles per hour, last 24 hours"
+                  />
+                </span>
+              </div>
+              <h3 class="dd-heading"><a href="/signals/{t.id}" class="hover:underline">{t.name}</a></h3>
+              {#if t.explanation}<p class="dd-body text-pretty text-ink-muted">{t.explanation}</p>{/if}
+              <p class="dd-body-sm text-ink-muted">{fmtInt(t.storyCount)} {t.storyCount === 1 ? "story" : "stories"}</p>
+            </li>
+          {/each}
+        </ol>
+      {:else}
+        <p class="dd-body text-ink-muted">No active signals yet.</p>
+      {/if}
     </svelte:boundary>
   </section>
 

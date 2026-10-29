@@ -43,9 +43,13 @@ import {
   sources,
   stories,
   storyEntities,
+  storyThemes,
   storyVulns,
   TABLES,
   type TableMeta,
+  type ThemeStatus,
+  themeEvents,
+  themes,
   vulns,
 } from "../schema/index.ts"
 import { spendSince } from "./ops.ts"
@@ -537,4 +541,176 @@ export const entityDetail = async (db: Db, id: number, opts: { since: number; li
       .groupBy(linkDay),
   ])
   return { aliases, stories: await withStoryCounts(db, rows), storiesPerDay }
+}
+
+const HOUR = 3_600_000
+
+/** Theme links a reader sees: detaching a story keeps its link for the audit trail, with confidence 0. */
+const themeLinked = gt(storyThemes.confidence, 0)
+
+/** themes.ts's momentum over any window: articles in the `hours` before `currentBucket` against the `hours` before. */
+const themeWindowMomentum = (currentBucket: number, hours: number) => {
+  const split = currentBucket - hours * HOUR
+  const recent = sql`total(case when ${rollups.bucket} >= ${split} then ${rollups.articles} end)`
+  const previous = sql`total(case when ${rollups.bucket} < ${split} then ${rollups.articles} end)`
+  return sql<number | null>`(select case when ${previous} = 0 then (case when ${recent} = 0 then 0 end)
+    else round(100.0 * (${recent} - ${previous}) / ${previous}) end
+    from ${rollups} where ${rollups.kind} = 'theme' and ${rollups.key} = cast(${themes.id} as text)
+    and ${rollups.bucket} >= ${split - hours * HOUR} and ${rollups.bucket} < ${currentBucket})`
+}
+
+/** Momentum over the `hours` before `now`'s hour: the stored column for 24 hours and 7 days, else from rollups. */
+const themeMomentumOver = (hours: number, now: number) => {
+  if (hours === 24) return sql<number | null>`${themes.momentum24h}`
+  if (hours === 7 * 24) return sql<number | null>`${themes.momentum7d}`
+  return themeWindowMomentum(Math.floor(now / HOUR) * HOUR, hours)
+}
+
+/**
+ * Themes in `statuses` with their momentum over `hours`: the largest swing first (a rise from 0 the largest) or the
+ * latest story first. `q` searches names and descriptions.
+ */
+export const themeList = (
+  db: Db,
+  o: {
+    statuses: ThemeStatus[]
+    hours: number
+    now: number
+    order: "swing" | "recent"
+    limit: number
+    offset?: number
+    q?: string
+  },
+) => {
+  const momentum = themeMomentumOver(o.hours, o.now)
+  const match = ftsMatch(o.q ?? "")
+  return db
+    .select({
+      id: themes.id,
+      name: themes.name,
+      description: themes.description,
+      status: themes.status,
+      storyCount: themes.storyCount,
+      firstSeen: themes.firstSeen,
+      lastSeen: themes.lastSeen,
+      explanation: themes.explanation,
+      momentum,
+    })
+    .from(themes)
+    .where(
+      and(
+        inArray(themes.status, o.statuses),
+        match ? sql`${themes.id} in (select rowid from themes_fts where themes_fts match ${match})` : undefined,
+      ),
+    )
+    .orderBy(
+      ...(o.order === "swing" ? [desc(sql`abs(coalesce(${momentum}, 1e9))`)] : []),
+      desc(themes.lastSeen),
+      desc(themes.id),
+    )
+    .limit(o.limit)
+    .offset(o.offset ?? 0)
+}
+
+/** The streams of each theme's linked unmerged stories. */
+export const themeStreams = (db: Db, themeIds: number[]) =>
+  themeIds.length === 0
+    ? Promise.resolve([])
+    : db
+        .selectDistinct({ themeId: storyThemes.themeId, category: stories.category })
+        .from(storyThemes)
+        .innerJoin(stories, eq(stories.id, storyThemes.storyId))
+        .where(and(inArray(storyThemes.themeId, themeIds), themeLinked, ne(stories.status, "merged")))
+
+/** Active themes rising over the `hours` before `now`'s hour, and in the window before; a rise from 0 counts. */
+export const risingThemes = async (db: Db, hours: number, now: number) => {
+  const rising = (m: SQL) => sql<number>`coalesce(sum(coalesce(${m}, 1) > 0), 0)`
+  const [row] = await db
+    .select({
+      recent: rising(themeMomentumOver(hours, now)),
+      previous: rising(themeWindowMomentum(Math.floor(now / HOUR) * HOUR - hours * HOUR, hours)),
+    })
+    .from(themes)
+    .where(eq(themes.status, "active"))
+  return { recent: row?.recent ?? 0, previous: row?.previous ?? 0 }
+}
+
+type ThemeChip = { id: number; name: string; momentum24h: number | null }
+
+/** Active and closed themes linked to these stories, most stories first, by story id. */
+export const storyThemeChips = async (db: Db, storyIds: number[]) => {
+  const rows = storyIds.length
+    ? await db
+        .select({
+          storyId: storyThemes.storyId,
+          id: themes.id,
+          name: themes.name,
+          momentum24h: themes.momentum24h,
+        })
+        .from(storyThemes)
+        .innerJoin(themes, eq(themes.id, storyThemes.themeId))
+        .where(and(inArray(storyThemes.storyId, storyIds), themeLinked, inArray(themes.status, ["active", "closed"])))
+        .orderBy(desc(themes.storyCount))
+    : []
+  const out = new Map<number, ThemeChip[]>()
+  for (const { storyId, ...chip } of rows) out.set(storyId, [...(out.get(storyId) ?? []), chip])
+  return out
+}
+
+/**
+ * The signal page's lists: up to `stories` linked unmerged stories newest first with their counts, up to `rows` of
+ * their join times oldest first, up to `entities` entities of those stories, most shared first, and up to `rows`
+ * events, newest first.
+ */
+export const themeDetail = async (db: Db, id: number, o: { stories: number; entities: number; rows: number }) => {
+  const linkedStories = and(eq(storyThemes.themeId, id), themeLinked, ne(stories.status, "merged"))
+  const shared = count()
+  const [storyRows, joins, entityRows, events] = await Promise.all([
+    db
+      .select({
+        id: stories.id,
+        category: stories.category,
+        score: stories.score,
+        lastArticleAt: stories.lastArticleAt,
+        title: stories.title,
+        summary: stories.summary,
+        origins: stories.independentOrigins,
+        momentum24h: stories.momentum24h,
+      })
+      .from(storyThemes)
+      .innerJoin(stories, eq(stories.id, storyThemes.storyId))
+      .where(linkedStories)
+      .orderBy(desc(stories.firstSeen))
+      .limit(o.stories),
+    db
+      .select({ storyId: stories.id, title: stories.title, at: storyThemes.assignedAt })
+      .from(storyThemes)
+      .innerJoin(stories, eq(stories.id, storyThemes.storyId))
+      .where(linkedStories)
+      .orderBy(storyThemes.assignedAt)
+      .limit(o.rows),
+    db
+      .select({
+        key: entities.key,
+        name: entities.name,
+        kind: entities.kind,
+        momentum24h: entities.momentum24h,
+        stories: shared,
+      })
+      .from(storyThemes)
+      .innerJoin(stories, eq(stories.id, storyThemes.storyId))
+      .innerJoin(storyEntities, eq(storyEntities.storyId, storyThemes.storyId))
+      .innerJoin(entities, eq(entities.id, storyEntities.entityId))
+      .where(and(linkedStories, isNull(entities.mergedInto)))
+      .groupBy(entities.id)
+      .orderBy(desc(shared), desc(entities.storyCount))
+      .limit(o.entities),
+    db
+      .select()
+      .from(themeEvents)
+      .where(eq(themeEvents.themeId, id))
+      .orderBy(desc(themeEvents.at), desc(themeEvents.id))
+      .limit(o.rows),
+  ])
+  return { stories: await withStoryCounts(db, storyRows), joins, entities: entityRows, events }
 }

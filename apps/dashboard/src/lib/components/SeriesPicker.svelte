@@ -8,10 +8,10 @@ import SearchField from "./SearchField.svelte"
 type Hit = { key: string; name: string; kind: string }
 
 type Props = {
-  /** Entities drawn now, in URL order; their keys live in the URL as `?s=entity:<key>`. */
+  /** Series drawn now, in URL order; their keys live in the URL as `?s=entity:<key>` or `?s=theme:<id>`. */
   chosen: { key: string; name: string; stream: Stream }[]
   max: number
-  /** Name search; an empty string finds nothing. */
+  /** Name search returning series keys; an empty string finds nothing. */
   search: (q: string) => PromiseLike<Hit[]>
 }
 
@@ -26,7 +26,7 @@ const withKeys = (next: string[]) => {
   const params = new URLSearchParams(page.url.search)
   params.delete(TYPED)
   params.delete("s")
-  for (const k of next) params.append("s", `entity:${k}`)
+  for (const k of next) params.append("s", k)
   return `?${params}`
 }
 const kept = $derived([...page.url.searchParams].filter(([k]) => k !== TYPED))
@@ -65,8 +65,8 @@ const chip =
       {/each}
       <SearchField
         name={TYPED}
-        placeholder="Add an entity to the chart"
-        label="Search entities to chart"
+        placeholder="Add an entity or signal to the chart"
+        label="Search entities and signals to chart"
         value={term}
       />
     </form>
@@ -88,7 +88,7 @@ const chip =
               </a>
             </li>
           {:else}
-            <li class="dd-body-sm text-ink-muted">No entities match.</li>
+            <li class="dd-body-sm text-ink-muted">No entities or signals match.</li>
           {/each}
         </ul>
         {#snippet pending()}{/snippet}
@@ -98,6 +98,6 @@ const chip =
       </svelte:boundary>
     {/if}
   {:else}
-    <p class="dd-body-sm text-ink-muted">The chart draws up to {max} entities. Remove one to add another.</p>
+    <p class="dd-body-sm text-ink-muted">The chart draws up to {max} series. Remove one to add another.</p>
   {/if}
 </div>

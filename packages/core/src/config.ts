@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 11
+export const CONFIG_VERSION = 12
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -223,7 +223,7 @@ export const DASHBOARD = {
   /** Stories on the front page, the lead included. */
   topStories: 7,
   chartHeight: 340,
-  /** Rows on the story and entity lists. */
+  /** Rows on the story, entity and signal lists. */
   storiesPageSize: 50,
   /** Facts listed under the lead story. */
   leadFacts: 5,
@@ -231,9 +231,13 @@ export const DASHBOARD = {
   storyPageRows: 200,
   /** The story and entity pages' charts show at most this many days. */
   storyChartDays: 14,
-  /** Stories listed on an entity page, newest first. */
+  /** Stories listed on an entity or signal page, the newest. */
   entityPageStories: 30,
-  /** Entity series the front page chart draws beside the streams, in colour slots 5 to 8. */
+  /** Signals on the front page board, the largest swings in the range. */
+  signalBoard: 10,
+  /** Entity chips on a signal page, those in the most of its stories. */
+  signalEntities: 12,
+  /** Entity and signal series the front page chart draws beside the streams, in colour slots 5 to 8. */
   seriesPickerMax: 4,
   /** Search hits the series picker lists, and how long it waits after a keystroke before searching. */
   seriesPickerHits: 8,
