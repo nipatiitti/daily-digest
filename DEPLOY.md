@@ -8,7 +8,7 @@ migrations and upserts the source seed before `wrangler deploy`.
 | ------------------ | -------------- | --------------------------- | -------------------------------------------------------------------------------------------- |
 | `digest-pipeline`  | _(empty)_      | `pnpm run deploy:pipeline`  | `pnpm check` → D1 migrations → seed upsert → `wrangler deploy` → sync secrets                |
 | `digest-ingress`   | _(empty)_      | `pnpm run deploy:ingress`   | `pnpm check` → `wrangler deploy` (`hooks.dd.nipatiitti.fi`) → sync secrets → set the webhook |
-| `digest-dashboard` | _(empty)_      | `pnpm run deploy:dashboard` | `pnpm check` → `vite build` → `wrangler deploy` (`dd.nipatiitti.fi`) → sync secrets          |
+| `digest-dashboard` | _(empty)_      | `pnpm run deploy:dashboard` | `pnpm check` → `vite build` → `wrangler deploy` (`dd.nipatiitti.fi`)                         |
 
 Build command is empty for all three; the dashboard's `vite build` runs inside its deploy script. The root directory is the repo root: the root scripts hand off to the app with
 `pnpm --filter`, so Workers Builds installs the whole workspace from the root lockfile. It takes Node 24 from

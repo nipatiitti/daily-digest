@@ -1,8 +1,10 @@
 <script lang="ts">
+import { BarChart, Sparkline, TrendChart } from "#lib/charts/index.ts"
 import {
   Button,
   Delta,
   FactRow,
+  fmtDate,
   Readout,
   SearchField,
   SegmentedControl,
@@ -25,6 +27,31 @@ const ranges = [
   { value: "30d", label: "30d" },
 ]
 let range = $state("7d")
+
+// Chart fixtures: 49 hourly points (48 hours), measured to index 40, then 8 projected.
+const start = Date.UTC(2026, 9, 27)
+const hours = Array.from({ length: 49 }, (_, i) => new Date(start + i * hour).toISOString())
+const wave = (base: number, amp: number, phase: number) =>
+  hours.map((_, i) => Math.round(base + amp * Math.sin(i / 6 + phase) + i / 4))
+const trend = [
+  { name: "World", stream: 1 as const, values: wave(18, 6, 0) },
+  { name: "Tech", stream: 2 as const, values: wave(12, 4, 2) },
+  { name: "Security", stream: 3 as const, values: wave(8, 5, 4) },
+]
+const days = Array.from({ length: 14 }, (_, i) => new Date(start - (13 - i) * 24 * hour).toISOString())
+const finland = [{ name: "Finland", stream: 4 as const, values: [4, 6, 5, 7, 9, 8, 6, 5, 7, 10, 12, 11, 9, 13] }]
+const rubric = ["Relevance", "Novelty", "Source quality", "Impact", "Clarity", "Timeliness"].map((label, i) => ({
+  label,
+  values: [{ name: "Score", value: [3, 2, 4, 1, 3, 2][i] ?? 0 }],
+}))
+const spend = days.map((iso, i) => ({
+  label: fmtDate(Date.parse(iso)),
+  values: [
+    { name: "Clustering", value: 0.2 + (i % 3) * 0.05, stream: 5 as const },
+    { name: "Scoring", value: 0.3 + (i % 4) * 0.1, stream: 6 as const },
+    { name: "Digest", value: 0.25, stream: 7 as const },
+  ],
+}))
 </script>
 
 <svelte:head>
@@ -263,6 +290,47 @@ let range = $state("7d")
       <Button variant="ghost">Dismiss</Button>
       <Button size="sm" href="/styleguide">Small link</Button>
       <Button size="lg" disabled>Disabled</Button>
+    </div>
+  </section>
+
+  <section class="grid gap-4">
+    <h2 class="dd-label">Charts</h2>
+    <div class="grid gap-6">
+      <div class="rounded-lg border border-line bg-surface p-6 shadow-sm">
+        <TrendChart
+          title="Stories per hour by stream"
+          labels={hours}
+          series={trend}
+          projectFrom={40}
+          href={(i) => `/styleguide?at=${hours[i]}`}
+        />
+      </div>
+      <div class="rounded-lg border border-line bg-surface p-6 shadow-sm">
+        <TrendChart title="Finland stories per day" labels={days} series={finland} height={240} />
+      </div>
+      <div class="flex flex-wrap items-center gap-6">
+        <Sparkline values={trend[0]?.values ?? []} stream={1} label="World stories, rising" />
+        <Sparkline values={trend[1]?.values ?? []} stream={2} label="Tech stories, steady" />
+        <Sparkline values={[26, 18, 12, 9, 8]} stream={3} label="Security stories, falling" />
+        <Sparkline values={[3, 3, 4, 3, 3]} stream="other" label="Other stories, flat" />
+      </div>
+      <div class="grid gap-6 md:grid-cols-2">
+        <div class="rounded-lg border border-line bg-surface p-6 shadow-sm">
+          <BarChart title="Rubric dimensions" items={rubric} max={4} />
+        </div>
+        <div class="rounded-lg border border-line bg-surface p-6 shadow-sm">
+          <BarChart
+            title="Spend by purpose per day"
+            orientation="vertical"
+            items={spend}
+            unit=" USD"
+            caps={[
+              { label: "Alert", value: 1.2 },
+              { label: "Daily cap", value: 1.5 },
+            ]}
+          />
+        </div>
+      </div>
     </div>
   </section>
 </main>
