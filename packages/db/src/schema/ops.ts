@@ -69,8 +69,48 @@ export const llmCalls = sqliteTable(
     validationError: text(),
     at: nowMs(),
   },
-  (t) => [index("llm_calls_at_idx").on(t.at)],
+  (t) => [index("llm_calls_at_idx").on(t.at), index("llm_calls_purpose_at_idx").on(t.purpose, t.at)],
 )
+
+export const ACTION_KINDS = [
+  "close",
+  "merge",
+  "follow",
+  "fact_status",
+  "requeue",
+  "move_article",
+  "new_story",
+  "edit",
+  "source_toggle",
+  "send_now",
+  "theme_rename",
+  "theme_merge",
+  "theme_close",
+  "theme_detach",
+  "entity_merge",
+  "entity_rename",
+] as const
+export type ActionKind = (typeof ACTION_KINDS)[number]
+
+export const ACTION_SUBJECTS = ["story", "article", "source", "theme", "entity", "fact", "cell"] as const
+export type ActionSubject = (typeof ACTION_SUBJECTS)[number]
+
+/** Audit log: one row per dashboard write, with the Access email of who made it. Never deleted. */
+export const actions = sqliteTable(
+  "actions",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    kind: text({ enum: ACTION_KINDS }).notNull(),
+    subjectKind: text({ enum: ACTION_SUBJECTS }).notNull(),
+    subjectId: text().notNull(),
+    detailJson: text({ mode: "json" }).$type<Record<string, unknown>>(),
+    by: text().notNull(),
+    at: nowMs(),
+  },
+  (t) => [index("actions_at_idx").on(t.at), index("actions_subject_idx").on(t.subjectKind, t.subjectId)],
+)
+
+export type Action = typeof actions.$inferSelect
 
 export const dbStats = sqliteTable("db_stats", {
   /** YYYY-MM-DD, UTC */

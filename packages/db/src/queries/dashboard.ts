@@ -1,17 +1,39 @@
-import { and, type Column, desc, eq, gte, inArray, isNotNull, isNull, like, lt, sql } from "drizzle-orm"
+import {
+  and,
+  type Column,
+  desc,
+  eq,
+  getTableColumns,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  like,
+  lt,
+  sql,
+} from "drizzle-orm"
 import type { Db } from "../client.ts"
 import {
+  actions,
   articles,
   dbStats,
+  deliveries,
   facts,
+  feedback,
+  follows,
   gateLog,
   llmCalls,
+  matchLog,
   type RollupKind,
   rollups,
+  signals,
   sources,
   stories,
+  storyVulns,
+  vulns,
 } from "../schema/index.ts"
 import { spendSince } from "./ops.ts"
+import { storyArticles } from "./stories.ts"
 
 /** The three header lamps: newest fetched item, stories waiting for a score, Claude spend since UTC midnight. */
 export const lampInputs = async (db: Db, now: number) => {
@@ -166,4 +188,82 @@ export const opsCounts = async (db: Db, since: number) => {
     db.select({ bytes: dbStats.sizeBytes }).from(dbStats).orderBy(desc(dbStats.day)).limit(1),
   ])
   return { wouldAlert: alerts?.n ?? 0, dbBytes: size?.bytes ?? null }
+}
+
+/** Everything the story page lists besides the story row and its chart, each list capped at `limit` rows. */
+export const storyDetail = async (db: Db, id: number, limit: number) => {
+  const [factRows, articleRows, matches, vulnRows, gates, deliveryRows, votes, signalRows, [follow], audit] =
+    await Promise.all([
+      db.select().from(facts).where(eq(facts.storyId, id)).orderBy(desc(facts.salience), facts.firstSeen).limit(limit),
+      storyArticles(db, id).limit(limit),
+      // Newest placement first, so the first row per article is the one that stands.
+      db
+        .select({ articleId: matchLog.articleId, how: matchLog.how, cosine: matchLog.cosine })
+        .from(matchLog)
+        .innerJoin(articles, eq(articles.id, matchLog.articleId))
+        .where(eq(articles.storyId, id))
+        .orderBy(desc(matchLog.at), desc(matchLog.id))
+        .limit(limit),
+      db
+        .select(getTableColumns(vulns))
+        .from(storyVulns)
+        .innerJoin(vulns, eq(vulns.cveId, storyVulns.cveId))
+        .where(eq(storyVulns.storyId, id))
+        .orderBy(desc(vulns.epss))
+        .limit(limit),
+      db.select().from(gateLog).where(eq(gateLog.storyId, id)).orderBy(desc(gateLog.at)).limit(limit),
+      db.select().from(deliveries).where(eq(deliveries.storyId, id)).orderBy(desc(deliveries.sentAt)).limit(limit),
+      db
+        .select({ deliveryId: feedback.deliveryId, vote: feedback.vote, n: sql<number>`count(*)` })
+        .from(feedback)
+        .where(eq(feedback.storyId, id))
+        .groupBy(feedback.deliveryId, feedback.vote)
+        .limit(limit),
+      db.select().from(signals).where(eq(signals.storyId, id)).orderBy(desc(signals.observedAt)).limit(limit),
+      db.select().from(follows).where(eq(follows.storyId, id)),
+      db
+        .select()
+        .from(actions)
+        .where(and(eq(actions.subjectKind, "story"), eq(actions.subjectId, String(id))))
+        .orderBy(desc(actions.at))
+        .limit(limit),
+    ])
+  return {
+    facts: factRows,
+    articles: articleRows,
+    matches,
+    vulns: vulnRows,
+    gates,
+    deliveries: deliveryRows,
+    votes,
+    signals: signalRows,
+    follow: follow ?? null,
+    audit,
+  }
+}
+
+/** One article with its source and story, or null. */
+export const articleDetail = async (db: Db, id: number) => {
+  const [row] = await db
+    .select({
+      id: articles.id,
+      title: articles.title,
+      snippet: articles.snippet,
+      canonicalUrl: articles.canonicalUrl,
+      publishedAt: articles.publishedAt,
+      fetchedAt: articles.fetchedAt,
+      originId: articles.originId,
+      storyId: articles.storyId,
+      storyTitle: stories.title,
+      embeddedAt: articles.embeddedAt,
+      injectionSuspect: articles.injectionSuspect,
+      sourceId: articles.sourceId,
+      sourceName: sources.name,
+      tier: sources.tier,
+    })
+    .from(articles)
+    .innerJoin(sources, eq(sources.id, articles.sourceId))
+    .leftJoin(stories, eq(stories.id, articles.storyId))
+    .where(eq(articles.id, id))
+  return row ?? null
 }

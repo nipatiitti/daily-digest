@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 5
+export const CONFIG_VERSION = 6
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -168,4 +168,8 @@ export const DASHBOARD = {
   storiesPageSize: 50,
   /** Facts listed under the lead story. */
   leadFacts: 5,
+  /** Rows per list on the story and article pages: articles, facts, match log, gate log, deliveries, signals, audit. */
+  storyPageRows: 200,
+  /** The story page's articles per hour chart shows at most this many days. */
+  storyChartDays: 14,
 }
