@@ -23,11 +23,14 @@ const badRequest = async <T>(run: () => Promise<T>) => {
 
 export const tableIndex = query(() => tableCounts(db()))
 
+/** A table's registry entry, apart from its rows so the page keeps its header and filters when a browse fails. */
+export const tableInfo = query(z.string(), (table) => shape(metaOf(table)))
+
 /** One page of a table, filtered and sorted as the URL says. */
 export const browse = query(browseInput, async ({ table, ...opts }) => {
   const meta = metaOf(table)
   const page = await badRequest(() => browseTable(db(), meta, { ...opts, limit: DASHBOARD.browsePageSize }))
-  return { meta: shape(meta), next: page.next, rows: page.rows.map((r) => ({ id: rowId(meta, r), values: r })) }
+  return { next: page.next, rows: page.rows.map((r) => ({ id: rowId(meta, r), values: r })) }
 })
 
 const cell = z.object({ table: z.string(), id: z.string() })

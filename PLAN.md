@@ -43,7 +43,7 @@ scripts/        bootstrap.sh (Cloudflare resources), set-webhook, seed
 - `core` imports nothing from the workspace; `telegram` may import `core`; `llm` may import `core` and `db` (spend cap and `llm_calls` logging); `db` imports only Drizzle; packages never import apps.
 - Each Worker's `src/index.ts` only wires `env` into package functions.
 - Every _(calibrate)_ number lives in `core/src/config.ts` with a `CONFIG_VERSION`.
-- Sources live in `packages/db/seed/sources.ts`; the seed script upserts config columns only, never runtime state.
+- Sources live in `packages/db/seed/sources.ts`; the seed script upserts config columns only, never runtime state, except `enabled`, which the dashboard owns after insert.
 
 ## Tooling
 

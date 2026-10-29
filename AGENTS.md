@@ -23,5 +23,5 @@ Anything a reader sees: Telegram messages, dashboard pages, bot replies, digest 
 - Biome formats and lints: 120 columns, no semicolons, 2-space indent, double quotes. Run `pnpm format`.
 - Packages are source-only TypeScript. `core` imports nothing from the workspace, `db` imports only Drizzle, `llm` and `telegram` may import `core`, packages never import apps.
 - Every tunable number lives in `packages/core/src/config.ts`. Bump `CONFIG_VERSION` when one changes.
-- Sources live in `packages/db/seed/sources.ts`. Disable a feed with `enabled: false` and a comment saying why.
+- Sources live in `packages/db/seed/sources.ts`, which owns every source column except `enabled`. Disable or re-enable a feed from the dashboard (`/data/sources/<id>` or the sources page). The seed's `enabled` applies only when a source is first inserted, and removing a feed from the seed does not delete its row.
 - No tests. The gate is `pnpm check`, plus `node scripts/smoke-sources.ts` when touching feeds or the parser.

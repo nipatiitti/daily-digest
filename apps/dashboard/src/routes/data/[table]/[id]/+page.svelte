@@ -41,7 +41,8 @@ const confirmed = (question: string) => async (f: { submit: () => Promise<unknow
       <dd class="dd-data grid min-w-0 gap-2 break-words">
         <div><Cell {value} kind={c.kind} link={r.meta.linksTo[c.name]} /></div>
         {#if r.meta.editable.includes(c.name)}
-          {@const ef = editForm.for(c.name)}
+          {@const ef = editForm.for(`${id}:${c.name}`)}
+          {@const options = r.meta.editableValues?.[c.name] ?? choices(c)}
           <form
             {...(CONFIRM.has(c.name) ? ef.enhance(confirmed(`Change ${c.name} on ${table} row ${id}?`)) : ef)}
             class="flex flex-wrap items-center gap-2"
@@ -49,14 +50,14 @@ const confirmed = (question: string) => async (f: { submit: () => Promise<unknow
             <input {...ef.fields.table.as("hidden", table)} />
             <input {...ef.fields.id.as("hidden", id)} />
             <input {...ef.fields.column.as("hidden", c.name)} />
-            {#if choices(c).length}
-              <select name="value" class={input} aria-label="New {c.name}">
-                {#each choices(c) as v (v)}
-                  <option value={v} selected={String(value) === v}>{v}</option>
+            {#if options.length}
+              <select {...ef.fields.value.as("select", String(value ?? ""))} class={input} aria-label="New {c.name}">
+                {#each options as v (v)}
+                  <option value={v}>{v}</option>
                 {/each}
               </select>
             {:else}
-              <input name="value" value={String(value ?? "")} class={input} aria-label="New {c.name}" />
+              <input {...ef.fields.value.as("text", String(value ?? ""))} class={input} aria-label="New {c.name}" />
             {/if}
             <Button type="submit" size="sm" variant="ghost">Save</Button>
           </form>

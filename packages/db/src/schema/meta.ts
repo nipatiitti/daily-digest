@@ -24,7 +24,8 @@ export type TableName = {
 }[keyof Schema]
 
 export type ColumnKind = "integer" | "real" | "text" | "json" | "boolean" | "timestamp"
-export type LinkKind = "story" | "article" | "source" | "entity" | "theme"
+/** The table a column's value is a row ID of; its page is `/data/<table>/<id>` unless the dashboard has a better one. */
+export type LinkKind = TableName
 
 export type ColumnMeta = {
   /** The Drizzle key, as rows and filters name it. */
@@ -39,6 +40,8 @@ export type TableMeta = {
   name: TableName
   table: SQLiteTable
   primaryKey: string[]
+  /** The first column of each declared index: with the primary key, the columns a sort can use an index for. */
+  indexed: string[]
   columns: ColumnMeta[]
   /** Columns the dashboard may change one cell at a time. */
   editable: string[]
@@ -53,23 +56,28 @@ export type TableMeta = {
 const TIMESTAMPS = new Set(["at", "bucket", "firstSeen", "lastSeen", "kevDateAdded", "euvdExploitedSince"])
 
 const LINKS: Record<string, LinkKind> = {
-  storyId: "story",
-  mergedInto: "story",
-  previousStoryId: "story",
-  candidateStoryId: "story",
-  articleId: "article",
-  originId: "article",
-  sourceId: "source",
-  entityId: "entity",
+  storyId: "stories",
+  mergedInto: "stories",
+  previousStoryId: "stories",
+  candidateStoryId: "stories",
+  articleId: "articles",
+  originId: "articles",
+  sourceId: "sources",
+  entityId: "entities",
+  deliveryId: "deliveries",
+  replyToDeliveryId: "deliveries",
+  digestDate: "digests",
+  cveId: "vulns",
 }
 
 /** Where a column name links elsewhere in one table than in the rest. */
 const TABLE_LINKS: Partial<Record<TableName, Record<string, LinkKind>>> = {
-  entities: { mergedInto: "entity" },
+  entities: { mergedInto: "entities" },
 }
 
+/** The seed owns every other source column (seed/to-sql.ts), so the dashboard only turns a feed off or on. */
 const EDITABLE: Partial<Record<TableName, string[]>> = {
-  sources: ["enabled", "pollSeconds", "tier", "category", "authoritative", "staleAfterDays", "name", "url"],
+  sources: ["enabled"],
   stories: ["status"],
 }
 
@@ -104,12 +112,15 @@ const describe = (table: SQLiteTable): TableMeta => {
   const entries = Object.entries(getTableColumns(table))
   const keyOf = new Map(entries.map(([k, c]) => [c, k]))
   const inline = entries.filter(([, c]) => c.primary).map(([k]) => k)
+  const config = getTableConfig(table)
   return {
     name,
     table,
-    primaryKey: inline.length
-      ? inline
-      : (getTableConfig(table).primaryKeys[0]?.columns.map((c) => keyOf.get(c) ?? c.name) ?? []),
+    primaryKey: inline.length ? inline : (config.primaryKeys[0]?.columns.map((c) => keyOf.get(c) ?? c.name) ?? []),
+    indexed: config.indexes.flatMap((i) => {
+      const key = keyOf.get(i.config.columns[0] as Column)
+      return key ? [key] : []
+    }),
     columns: entries.map(([k, c]) => ({
       name: k,
       dbName: c.keyAsName ? toSnakeCase(c.name) : c.name,
@@ -120,9 +131,10 @@ const describe = (table: SQLiteTable): TableMeta => {
     editableValues: EDITABLE_VALUES[name],
     fts: FTS[name],
     linksTo: Object.fromEntries(
-      entries.flatMap(([k]) => {
+      entries.flatMap(([k, c]) => {
         const link = TABLE_LINKS[name]?.[k] ?? LINKS[k]
-        return link ? [[k, link]] : []
+        // A table's own key, such as digests.digestDate, would only link to the row it is in.
+        return link && !(link === name && c.primary) ? [[k, link]] : []
       }),
     ),
   }
@@ -154,7 +166,9 @@ export const coerce = (c: ColumnMeta, raw: string) => {
     case "integer":
     case "real":
     case "timestamp": {
-      const n = c.kind === "timestamp" && !/^-?\d+$/.test(raw) ? Date.parse(raw) : Number(raw)
+      // Number alone would read "1e3", "0x10" and " 5 " as integers.
+      const int = /^-?\d+$/.test(raw)
+      const n = int || c.kind === "real" ? Number(raw) : c.kind === "timestamp" ? Date.parse(raw) : Number.NaN
       if (raw.trim() && Number.isFinite(n) && (c.kind === "real" || Number.isInteger(n))) return n
       break
     }

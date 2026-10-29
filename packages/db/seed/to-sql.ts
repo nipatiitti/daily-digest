@@ -1,5 +1,6 @@
 // Prints an idempotent upsert of the seed list. It touches config columns only, so
-// re-running it never resets poll times, ETags or failure counts.
+// re-running it never resets poll times, ETags or failure counts. `enabled` is set on
+// insert only: after that the dashboard owns it.
 //   node seed/to-sql.ts > seed.sql && wrangler d1 execute digest --remote --file seed.sql
 import { SOURCES, type SourceSeed } from "./sources.ts"
 
@@ -39,7 +40,7 @@ const literal = (v: unknown): string => {
 
 const names = COLUMNS.map(([, c]) => c)
 const updates = names
-  .filter((c) => c !== "slug")
+  .filter((c) => c !== "slug" && c !== "enabled")
   .map((c) => `${c} = excluded.${c}`)
   .join(", ")
 

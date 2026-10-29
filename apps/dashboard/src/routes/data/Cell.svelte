@@ -11,14 +11,18 @@ import { fmtTime } from "#lib/components/index.ts"
 type Props = {
   value: unknown
   kind: ColumnKind
-  /** Set for an ID the registry knows; the value links to its page. */
+  /** The table the value is a row ID of; the value links to its page. */
   link?: LinkKind
 }
 
 let { value, kind, link }: Props = $props()
 
-const PAGES: Partial<Record<LinkKind, string>> = { story: "/stories", article: "/articles", source: "/data/sources" }
-const href = $derived(link && PAGES[link] ? `${PAGES[link]}/${value}` : undefined)
+/**
+ * Tables with a page of their own; any other links to its row in the data browser. Entities go there too until the
+ * entity page at /entities/[key] lands, then to /entities/<key>.
+ */
+const PAGES: Partial<Record<LinkKind, string>> = { stories: "/stories", articles: "/articles" }
+const href = $derived(link && `${PAGES[link] ?? `/data/${link}`}/${encodeURIComponent(String(value))}`)
 </script>
 
 {#if value === null || value === undefined}
