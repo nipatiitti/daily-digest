@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 18
+export const CONFIG_VERSION = 19
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -293,4 +293,8 @@ export const DASHBOARD = {
   answerMaxTokens: 1024,
   /** Days a month in review covers: the stories that joined a signal or met an entity, or a story's new facts. */
   reviewDays: 30,
+  /** Distinct words of a question to the desk that its full text search ORs together, the first ones kept. */
+  askTerms: 16,
+  /** The longest question to the desk, in characters. */
+  questionMaxChars: 500,
 }

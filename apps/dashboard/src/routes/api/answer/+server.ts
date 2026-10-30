@@ -1,4 +1,5 @@
 import { waitUntil } from "cloudflare:workers"
+import { DASHBOARD } from "@digest/core"
 import { ACTION_SUBJECTS, cachedAnswer, DASHBOARD_LLM_PURPOSES, storeAnswer } from "@digest/db"
 import { SpendCapError, streamAnswer } from "@digest/llm"
 import { z } from "zod"
@@ -18,7 +19,7 @@ const Body = z.object({
   question: z
     .string()
     .transform((s) => s.replace(/\s+/g, " ").trim())
-    .pipe(z.string().min(1).max(500))
+    .pipe(z.string().min(1).max(DASHBOARD.questionMaxChars))
     .optional(),
 })
 

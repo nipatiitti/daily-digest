@@ -22,8 +22,8 @@ import { closeForm, factStatusForm, followForm, mergeForm, requeueForm, storyPag
 
 const p = $derived(await storyPage(Number(page.params.id)))
 const s = $derived(p.story)
-/** The story to compare this one with. */
-let other = $state<number | null>(null)
+/** The story to compare this one with, typed into the field and cleared when the page moves to another story. */
+let other = $derived<number | null>(s.id && null)
 const stream = $derived(streamSlot(s.category))
 
 /** Statuses, gates, delivery and signal kinds, action kinds and placement methods as the page says them. */

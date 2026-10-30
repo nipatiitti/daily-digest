@@ -1082,13 +1082,14 @@ export const storiesWithFacts = async (db: Db, ids: number[], factsEach: number)
 
 /**
  * The best FTS5 matches for a question: up to `limit` unmerged stories, with up to `factsEach` facts each, and up to
- * `limit` active or closed themes. A question matches on any of its words, where ftsMatch needs every word.
+ * `limit` active or closed themes. A question matches on any of its first `terms` distinct words of two or more
+ * characters, where ftsMatch needs every word.
  */
-export const askHits = async (db: Db, question: string, o: { limit: number; factsEach: number }) => {
-  const match = question
-    .split(/[^\p{L}\p{N}]+/u)
+export const askHits = async (db: Db, question: string, o: { limit: number; factsEach: number; terms: number }) => {
+  const match = [...new Set(question.toLowerCase().split(/[^\p{L}\p{N}]+/u))]
+    .filter((w) => w.length > 1)
+    .slice(0, o.terms)
     .map(ftsMatch)
-    .filter(Boolean)
     .join(" OR ")
   if (!match) return { stories: [], signals: [] }
   const [storyRows, signals] = await Promise.all([
@@ -1096,7 +1097,7 @@ export const askHits = async (db: Db, question: string, o: { limit: number; fact
       .select({ id: stories.id })
       .from(stories)
       .where(
-        sql`${stories.id} in (select rowid from stories_fts where stories_fts match ${match} order by rank limit ${o.limit})`,
+        sql`${stories.id} in (select f.rowid from stories_fts f join stories s on s.id = f.rowid where stories_fts match ${match} and s.status != 'merged' order by f.rank limit ${o.limit})`,
       ),
     db
       .select({
@@ -1111,10 +1112,7 @@ export const askHits = async (db: Db, question: string, o: { limit: number; fact
       })
       .from(themes)
       .where(
-        and(
-          inArray(themes.status, ["active", "closed"]),
-          sql`${themes.id} in (select rowid from themes_fts where themes_fts match ${match} order by rank limit ${o.limit})`,
-        ),
+        sql`${themes.id} in (select f.rowid from themes_fts f join themes t on t.id = f.rowid where themes_fts match ${match} and t.status in ('active', 'closed') order by f.rank limit ${o.limit})`,
       )
       .orderBy(desc(themes.lastSeen)),
   ])

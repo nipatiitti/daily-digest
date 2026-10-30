@@ -140,19 +140,24 @@ const ANSWERS: Partial<Record<`${LlmPurpose} ${ActionSubject}`, Answer>> = {
     const range = RANGES.find((r) => subjectId === `streams.${r}`)
     if (!range) return null
     const w = rangeToWindow(range, now)
-    const from = w.from || ((await firstDeskBucket(d)) ?? now)
-    const [rows, appeared] = await Promise.all([
-      rollupTotals(d, "stream", [...CATEGORIES], from, now, w.bucketMs),
-      storiesFirstSeenBetween(d, from, now, DASHBOARD.storiesPageSize),
-    ])
-    if (rows.length === 0) return null
-    const hourly = w.bucketMs === HOUR_MS
     const bucketOf = (t: number) => Math.floor(t / w.bucketMs) * w.bucketMs
+    const from = bucketOf(w.from || ((await firstDeskBucket(d)) ?? now))
+    const rows = await rollupTotals(d, "stream", [...CATEGORIES], from, now, w.bucketMs)
+    if (rows.length === 0) return null
+    // The stories at or just before the highest stream count, the one the prompt asks about.
+    const peak = rows.reduce((a, b) => (b.articles > a.articles ? b : a)).bucket
+    const appeared = await storiesFirstSeenBetween(
+      d,
+      Math.max(from, peak - w.bucketMs),
+      Math.min(now, peak + w.bucketMs),
+      DASHBOARD.storiesPageSize,
+    )
+    const hourly = w.bucketMs === HOUR_MS
     // Hours back from the end of the last complete hour, days back from today.
     const end = hourly ? now : bucketOf(now)
     const ago = (t: number) => (end - bucketOf(t)) / w.bucketMs
     const buckets: number[] = []
-    for (let b = bucketOf(from); b < now; b += w.bucketMs) buckets.push(b)
+    for (let b = from; b < now; b += w.bucketMs) buckets.push(b)
     const count = byKeyBucket(rows)
     return explainSpike({
       range,
@@ -224,7 +229,11 @@ const ANSWERS: Partial<Record<`${LlmPurpose} ${ActionSubject}`, Answer>> = {
   "ask cell": async (d, subjectId, now, question) => {
     if (subjectId !== "desk" || !question) return null
     const [hits, brief] = await Promise.all([
-      askHits(d, question, { limit: DASHBOARD.storiesPageSize, factsEach: DASHBOARD.leadFacts }),
+      askHits(d, question, {
+        limit: DASHBOARD.storiesPageSize,
+        factsEach: DASHBOARD.leadFacts,
+        terms: DASHBOARD.askTerms,
+      }),
       latestBrief(d),
     ])
     return askDesk({ question, now, brief: brief?.text ?? null, ...hits })

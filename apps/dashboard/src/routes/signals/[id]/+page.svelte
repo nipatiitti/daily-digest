@@ -7,8 +7,8 @@ import { closeForm, detachForm, mergeForm, renameForm, signalPage } from "./sign
 
 const p = $derived(await signalPage(Number(page.params.id)))
 const t = $derived(p.theme)
-/** The signal to compare this one with. */
-let other = $state<number | null>(null)
+/** The signal to compare this one with, typed into the field and cleared when the page moves to another signal. */
+let other = $derived<number | null>(t.id && null)
 const sig = (id: number) => `/signals/${id}`
 const sty = (id: number) => `/stories/${id}`
 const input = "h-(--size-control-sm) w-48 rounded-full border border-line-control bg-surface px-3 text-sm text-ink"

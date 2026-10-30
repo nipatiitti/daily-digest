@@ -1,4 +1,5 @@
 <script lang="ts">
+import { DASHBOARD } from "@digest/core"
 import { AskButton } from "#lib/components/index.ts"
 
 let question = $state("")
@@ -24,7 +25,7 @@ let question = $state("")
       <input
         type="text"
         bind:value={question}
-        maxlength="500"
+        maxlength={DASHBOARD.questionMaxChars}
         placeholder="What changed in the ransomware stories this week?"
         class="min-w-0 flex-1 bg-transparent text-[15px] text-ink outline-none placeholder:text-ink-subtle"
       />
