@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 19
+export const CONFIG_VERSION = 20
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -97,8 +97,10 @@ export const ALERT = {
   worldVelocityWindowMinutes: 30,
   /** Helsinki quiet hours: send silently unless authoritative and exploited. */
   quietHours: { start: 23, end: 7 },
-  /** Material update: a new or contradicting fact of a key type with at least this salience. */
-  materialSalience: 2,
+  /** Material update: one new or contradicting fact of a key type with at least this salience... */
+  materialSalience: 3,
+  /** ...or this many new or contradicting key type facts of distinct types, each with salience one below that. */
+  materialKeyFacts: 2,
   materialOriginJump: 5,
 }
 
@@ -114,8 +116,13 @@ export const DIGEST = {
   /** Candidates are stories that changed within this window before the run. */
   windowHours: 30,
   maxLinks: 3,
-  /** Before slotting, the top candidates are checked pairwise for the same event and merged. */
+  /**
+   * Before slotting, the top candidates are checked for the same event against the top stories already delivered,
+   * then pairwise against each other, and merged.
+   */
   dedupeTop: 14,
+  /** UTC hours the two editions go out; the digest crons in apps/pipeline/wrangler.jsonc must match. */
+  editions: { morning: 6, afternoon: 15 },
 }
 
 export const MAINTENANCE = {

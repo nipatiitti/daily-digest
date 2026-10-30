@@ -926,13 +926,14 @@ export const loopHealth = async (db: Db, since: number) => {
 const votes = (vote: "up" | "down") => sql<number>`coalesce(sum(${feedback.vote} = ${vote}), 0)`
 
 /**
- * Daily digest editions dated in [from, to) (YYYY-MM-DD), newest first: each date with digest or update deliveries,
- * its count of distinct stories and its votes over every chat.
+ * Digest editions dated in [from, to) (YYYY-MM-DD), newest first: each edition key (editionKey) with digest or update
+ * deliveries, its count of distinct stories and its votes over every chat. Keys compare as text, so a date's afternoon
+ * edition sorts after its morning one and before the next date.
  */
 export const digestEditions = (db: Db, from: string, to: string, limit?: number) => {
   const q = db
     .select({
-      date: sql<string>`${deliveries.digestDate}`,
+      key: sql<string>`${deliveries.digestDate}`,
       items: sql<number>`count(distinct ${deliveries.storyId})`,
       up: votes("up"),
       down: votes("down"),
@@ -952,10 +953,10 @@ export const digestEditions = (db: Db, from: string, to: string, limit?: number)
 }
 
 /**
- * The stories of the digest dated `date` and the alerts sent in [from, to), in send order, each story once per kind
- * with the stored fields a digest item is rendered from, its score at send and its votes over every chat.
+ * The stories of the edition `key` (editionKey) and the alerts sent in [from, to), in send order, each story once per
+ * kind with the stored fields a digest item is rendered from, its score at send and its votes over every chat.
  */
-export const digestDay = (db: Db, date: string, from: number, to: number) => {
+export const digestDay = (db: Db, key: string, from: number, to: number) => {
   const sentAt = sql<number>`min(${deliveries.sentAt})`
   return db
     .select({
@@ -976,7 +977,7 @@ export const digestDay = (db: Db, date: string, from: number, to: number) => {
     .leftJoin(feedback, eq(feedback.deliveryId, deliveries.id))
     .where(
       or(
-        eq(deliveries.digestDate, date),
+        eq(deliveries.digestDate, key),
         and(eq(deliveries.kind, "alert"), gte(deliveries.sentAt, from), lt(deliveries.sentAt, to)),
       ),
     )

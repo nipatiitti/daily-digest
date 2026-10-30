@@ -101,12 +101,24 @@ export type UpdateInput = {
   origins: number
 }
 
-/** Material update: a key-type new or contradicting fact with salience >= 2, a tier crossing, or +5 origins. */
+/**
+ * Material update, one of: a new or contradicting key-type fact with salience >= `ALERT.materialSalience`; at least
+ * `ALERT.materialKeyFacts` such facts of distinct types with salience >= `ALERT.materialSalience - 1`; a tier
+ * crossing; or `ALERT.materialOriginJump` more origins than at the last send (unknown when previousOrigins is null).
+ */
 export const materialUpdate = (u: UpdateInput) => {
   const reasons: string[] = []
+  // The most salient fact of each key type, so a story repeating one type does not count twice.
+  const byType = new Map<string, UpdateInput["newKeyFacts"][number]>()
   for (const f of u.newKeyFacts) {
-    if (KEY_TYPES.has(f.type) && f.salience >= ALERT.materialSalience) reasons.push(`${f.label}:${f.type}`)
+    if (!KEY_TYPES.has(f.type) || f.salience < ALERT.materialSalience - 1) continue
+    const seen = byType.get(f.type)
+    if (!seen || f.salience > seen.salience) byType.set(f.type, f)
   }
+  const facts = [...byType.values()]
+  const passing =
+    facts.length >= ALERT.materialKeyFacts ? facts : facts.filter((f) => f.salience >= ALERT.materialSalience)
+  for (const f of passing) reasons.push(`${f.label}:${f.type}`)
   if (u.previousTier !== null && u.tier !== u.previousTier) reasons.push(`tier ${u.previousTier} -> ${u.tier}`)
   if (u.previousOrigins !== null && u.origins - u.previousOrigins >= ALERT.materialOriginJump) {
     reasons.push(`origins +${u.origins - u.previousOrigins}`)

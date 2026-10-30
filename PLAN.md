@@ -8,7 +8,7 @@ working rules.
 
 | Question                                          | Decision                                                                                       |
 | ------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Digest time                                       | `0 7 * * *` every day (drifts to 09:00 Helsinki in winter)                                     |
+| Digest time                                       | `0 6 * * *` morning, `0 15 * * *` afternoon (08:00 and 17:00 Helsinki in winter)               |
 | Embeddings                                        | `@cf/baai/bge-m3`, 1024-d, cosine. No benchmark                                                |
 | Tests                                             | None                                                                                           |
 | Git flow                                          | Commit straight to `main`, no PRs                                                              |
@@ -65,11 +65,11 @@ All apps: same pinned `compatibility_date`, `nodejs_compat`, observability on, `
 | Binding                                                                                                                                | pipeline                                                                     | ingress                                         | dashboard                                                                                                 |
 | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | D1 `DB`                                                                                                                                | yes                                                                          | yes                                             | yes                                                                                                       |
-| Crons `* * * * *` scheduler, `0 * * * *` hourly, `0 7 * * *` digest, `30 3 * * *` maintenance, `15 12 * * *` Kagi recall               | yes                                                                          |                                                 |                                                                                                           |
+| Crons `* * * * *` scheduler, `0 * * * *` hourly, `0 6 * * *`, `0 15 * * *` digest, `30 3 * * *` maintenance, `15 12 * * *` Kagi recall | yes                                                                          |                                                 |                                                                                                           |
 | Queue `fetch-q` + `fetch-dlq` (batch 10, concurrency 5)                                                                                | produce + consume                                                            |                                                 |                                                                                                           |
 | Queue `process-q` + `process-dlq` (batch 50, 5 s timeout)                                                                              | produce + consume                                                            |                                                 |                                                                                                           |
 | Workflow `STORY_EVAL` (`StoryEval`)                                                                                                    | yes                                                                          |                                                 | yes, via `script_name`                                                                                    |
-| Workflow `DIGEST` (`Digest`), started by cron `0 7 * * *` with instance ID `digest-YYYY-MM-DD`                                         | yes                                                                          |                                                 | yes, via `script_name`                                                                                    |
+| Workflow `DIGEST` (`Digest`), started by crons `0 6 * * *` and `0 15 * * *` with instance ID `digest-YYYY-MM-DD[-afternoon]`           | yes                                                                          |                                                 | yes, via `script_name`                                                                                    |
 | R2 `FULLTEXT` → `digest-fulltext`                                                                                                      | yes                                                                          |                                                 |                                                                                                           |
 | Workers AI `AI`, Browser Rendering `BROWSER`                                                                                           | yes                                                                          |                                                 |                                                                                                           |
 | Vectorize `VECTORS` → `digest-articles` (1024-d, cosine; metadata indexes `published_at`, `category`, `source_id` before first insert) | yes                                                                          |                                                 |                                                                                                           |
@@ -122,10 +122,11 @@ Done when a walking skeleton runs in production: at 07:00 UTC a "Nothing notable
 13. Sources page with audited enable, disable, poll now and reset. Done 29 Oct.
 14. Ops page: spend by day and purpose, gate log, StoryEval activity, database size, calibration, loop health. Done 29 Oct.
 15. Digest archive at `/digest` with each edition as Telegram rendered it, and "Send to Telegram now" on the story page. Done 30 Oct.
-16. Attention source ingestion into `signals`. The tier D feeds stay disabled until then.
-17. Hourly story merge pass.
-18. Follow.
-19. Alert calibration on the shadow gate logs after the two week shadow period, then alerts for real.
-20. Telegram links to the site, if Niilo wants them.
+16. Two editions (06:00 and 15:00 UTC), no update items, candidates checked against already delivered stories, stricter update gate and novelty prompt. Done 30 Oct.
+17. Attention source ingestion into `signals`. The tier D feeds stay disabled until then.
+18. Hourly story merge pass.
+19. Follow.
+20. Alert calibration on the shadow gate logs after the two week shadow period, then alerts for real.
+21. Telegram links to the site, if Niilo wants them.
 
 Later: velocity signals, EUVD, HF trending and HTML-diff parsers, Kagi recall, Opus edit.

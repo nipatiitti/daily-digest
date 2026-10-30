@@ -10,8 +10,9 @@
   "preview_urls": false,
   "observability": { "enabled": true },
   "triggers": {
-    // scheduler, hourly loop (rollups, momentum), daily digest (07:00 UTC), nightly maintenance
-    "crons": ["* * * * *", "0 * * * *", "0 7 * * *", "30 3 * * *"]
+    // scheduler, hourly loop (rollups, momentum), morning and afternoon digest (06:00 and 15:00 UTC, DIGEST.editions
+    // in packages/core/src/config.ts), nightly maintenance
+    "crons": ["* * * * *", "0 * * * *", "0 6 * * *", "0 15 * * *", "30 3 * * *"]
   },
   "d1_databases": [
     {

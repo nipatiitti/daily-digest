@@ -477,7 +477,13 @@ export const sendStoryNow = async (db: Db, bot: StorySender, chatIds: number[], 
   const sent: { chatId: number; deliveryId: number; messageId: number }[] = []
   const failed: { chatId: number; deliveryId: number; error: string }[] = []
   for (const chatId of chatIds) {
-    const deliveryId = await recordDelivery(db, { kind: "alert", storyId, chatId, scoreAtSend: story.score })
+    const deliveryId = await recordDelivery(db, {
+      kind: "alert",
+      storyId,
+      chatId,
+      scoreAtSend: story.score,
+      originsAtSend: story.independentOrigins,
+    })
     try {
       sent.push({ chatId, deliveryId, messageId: await bot.send(chatId, html, deliveryId) })
     } catch (e) {

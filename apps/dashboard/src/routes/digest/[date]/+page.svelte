@@ -1,14 +1,18 @@
 <script lang="ts">
+import { EDITION_LABEL, parseEditionKey } from "@digest/core"
 import { fmtInt, fmtTime, padId } from "#lib/components/index.ts"
 import { page } from "$app/state"
 import { edition } from "../digest.remote.ts"
 
-const date = $derived(page.params.date ?? "")
+/** The edition key (editionKey): the bare date for the morning edition, date-afternoon for the afternoon one. */
+const key = $derived(page.params.date ?? "")
+const parsed = $derived(parseEditionKey(key))
+const title = $derived(parsed ? `${parsed.date} ${EDITION_LABEL[parsed.edition]}` : key)
 const score = (n: number | null) => (n === null ? "none" : n.toFixed(1))
 </script>
 
 <svelte:head>
-  <title>Digest {date}</title>
+  <title>Digest {title}</title>
 </svelte:head>
 
 {#snippet meta(r: { storyId: number; sentAt: number; scoreAtSend: number | null; up: number; down: number })}
@@ -23,11 +27,11 @@ const score = (n: number | null) => (n === null ? "none" : n.toFixed(1))
 <div class="grid gap-8 pt-8">
   <header class="grid gap-2">
     <a href="/digest" class="dd-label hover:underline">Digest</a>
-    <h1 class="dd-display">{date}</h1>
+    <h1 class="dd-display">{title}</h1>
   </header>
 
   <svelte:boundary>
-    {@const e = await edition(date)}
+    {@const e = await edition(key)}
     <!--
       The HTML is renderDigestItem's own, as Telegram shows it: every text is escaped there, and each link is a stored
       canonical http(s) URL, which the URL parser serializes without quotes.
@@ -45,11 +49,15 @@ const score = (n: number | null) => (n === null ? "none" : n.toFixed(1))
         </ol>
       </section>
     {:else}
-      <p class="dd-body text-ink-muted">No digest stories went out on this date.</p>
+      <p class="dd-body text-ink-muted">No digest stories went out in this edition.</p>
     {/if}
     <section class="grid max-w-prose gap-4">
       <h2 class="dd-label">Alerts sent this day</h2>
-      {#if e.alerts.length}
+      {#if e.alerts === null}
+        <p class="dd-body text-ink-muted">
+          Alerts are listed once a day, on the <a href="/digest/{e.date}" class="underline">morning edition</a>.
+        </p>
+      {:else if e.alerts.length}
         <ul class="grid divide-y divide-line">
           {#each e.alerts as r (r.storyId)}
             <li class="grid gap-1 py-2">

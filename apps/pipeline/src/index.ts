@@ -1,3 +1,4 @@
+import { type Edition, editionKey } from "@digest/core"
 import { getDb } from "@digest/db"
 import type { DigestParams } from "./digest.ts"
 import { type FetchMessage, fetchSource } from "./fetch.ts"
@@ -11,13 +12,14 @@ import type { StoryEvalParams } from "./story-eval.ts"
 export { Digest } from "./digest.ts"
 export { StoryEval } from "./story-eval.ts"
 
-const startDigest = async (workflow: Workflow<DigestParams>, scheduledTime: number) => {
+const startDigest = async (workflow: Workflow<DigestParams>, scheduledTime: number, edition: Edition) => {
   const date = new Date(scheduledTime).toISOString().slice(0, 10)
+  const key = editionKey(date, edition)
   try {
-    await workflow.create({ id: `digest-${date}`, params: { date } })
+    await workflow.create({ id: `digest-${key}`, params: { date, edition } })
   } catch (e) {
-    // The instance ID is per day, so a duplicate cron fire fails here; the DB claim covers the rest.
-    console.warn(JSON.stringify({ event: "digest_create_failed", date, error: String(e) }))
+    // The instance ID is per edition, so a duplicate cron fire fails here; the DB claim covers the rest.
+    console.warn(JSON.stringify({ event: "digest_create_failed", key, error: String(e) }))
   }
 }
 
@@ -39,8 +41,12 @@ export default {
         await runHourly(env, db, llmFor(env, db), controller.scheduledTime)
         break
       }
-      case "0 7 * * *":
-        await startDigest(env.DIGEST as Workflow<DigestParams>, controller.scheduledTime)
+      // DIGEST.editions holds the same hours.
+      case "0 6 * * *":
+        await startDigest(env.DIGEST as Workflow<DigestParams>, controller.scheduledTime, "morning")
+        break
+      case "0 15 * * *":
+        await startDigest(env.DIGEST as Workflow<DigestParams>, controller.scheduledTime, "afternoon")
         break
       case "30 3 * * *":
         await runMaintenance(getDb(env.DB), env.PROCESS_Q as Queue<ProcessMessage>, controller.scheduledTime)

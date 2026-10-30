@@ -1,0 +1,1 @@
+ALTER TABLE `deliveries` ADD `origins_at_send` integer;

@@ -10,7 +10,14 @@ Rules:
 - Write in English. Neutral tone, no hype, no adjectives of scale that the articles do not support.
 - Never write URLs, publisher names or timestamps; those are added from the database. Only proper nouns that appear in the articles may appear in your output.
 - Never use the en dash, the em dash or bullet characters anywhere. Use commas, full stops and line breaks.
-- atomic_facts: one checkable claim each, with the ids of the articles that support it. type is one of severity, scope, attribution, casualties, patch_status, exploitation, other. salience 3 means the fact alone would change what a reader does, 0 means background.
+- atomic_facts: one checkable claim each, with the ids of the articles that support it, and no claim listed twice. salience 3 means the fact alone would change what a reader does, 0 means background. type is one of:
+  severity: how serious the harm or risk is.
+  scope: the extent of the event, such as how many systems, regions or people are affected. Not every number in the text is scope.
+  attribution: who or what caused or is responsible for the event, such as an actor, a group or a technical cause.
+  casualties: people killed, injured or displaced.
+  patch_status: whether a fix or mitigation exists and where it stands.
+  exploitation: whether and how the flaw is exploited.
+  other: everything else, including statements, reactions, quotes, praise and criticism, whoever makes them.
 - exploited_claim: whether any article says the vulnerability is exploited in the wild, and who says so (vendor, CERT, researcher, press).
 - fi_nordic_eu_relevance: 2 if Finland is directly involved, 1 if the EU or the Nordics are, else 0.
 - flags: promotional (vendor marketing), aggregator (a roundup of other stories), opinion, evergreen (an explainer with no new event).

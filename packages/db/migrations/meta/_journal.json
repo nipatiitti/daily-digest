@@ -78,6 +78,13 @@
       "when": 1793278774546,
       "tag": "0010_perpetual_paladin",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1793346556828,
+      "tag": "0011_brief_aaron_stack",
+      "breakpoints": true
     }
   ]
 }

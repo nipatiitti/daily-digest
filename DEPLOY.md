@@ -100,8 +100,9 @@ secret token. Both skip quietly when the variables aren't set.
   story, and a `story_eval_stub` line appears when one crosses the bar.
 - **Feeds**: `node scripts/smoke-sources.ts --all` fetches every seeded source with the real parser and prints one
   line each (status, items, newest item age). Node 24, or `--experimental-strip-types` on 22.
-- **Digest**: arrives at 07:00 UTC. To try it sooner, trigger the `digest` Workflow (dashboard → Workflows →
-  digest → Trigger, or `npx wrangler workflows trigger digest '{"date":"test-1"}'`). Use a date other than
-  today's, because each `date` sends at most once.
+- **Digest**: the morning edition arrives at 06:00 UTC and the afternoon one at 15:00 UTC. To try it sooner, trigger
+  the `digest` Workflow (dashboard → Workflows → digest → Trigger, or
+  `npx wrangler workflows trigger digest '{"date":"test-1","edition":"morning"}'`). Use a date other than today's,
+  because each date and edition sends at most once.
 - **Feedback**: tap 👍 on the digest and a `feedback` row appears
   (`npx wrangler d1 execute digest --remote --command "select * from feedback"`).

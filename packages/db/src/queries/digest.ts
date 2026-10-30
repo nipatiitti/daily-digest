@@ -1,8 +1,8 @@
 import { and, desc, eq, gt, gte, inArray, isNotNull, sql } from "drizzle-orm"
 import type { Db } from "../client.ts"
-import { articles, deliveries, digests, facts, gateLog, stories } from "../schema/index.ts"
+import { articles, deliveries, digests, facts, stories } from "../schema/index.ts"
 
-/** When the previous digest went out; null before the first one. */
+/** When the previous edition of either kind went out; null before the first one. */
 export const previousDigestSentAt = async (db: Db) => {
   const [row] = await db
     .select({ sentAt: digests.sentAt })
@@ -21,7 +21,7 @@ export const changedStories = (db: Db, since: number) =>
     .where(and(eq(stories.status, "active"), isNotNull(stories.score), gte(stories.lastArticleAt, since)))
     .orderBy(desc(stories.score))
 
-/** Latest delivery per story, for the "already delivered unless updated" rule. */
+/** Latest delivery per story; the digest never sends a story that has one. */
 export const latestDeliveries = async (db: Db, storyIds: number[]) => {
   if (storyIds.length === 0) return new Map<number, { sentAt: number; scoreAtSend: number | null }>()
   const rows = await db
@@ -69,21 +69,4 @@ export const mainSources = async (db: Db, storyIds: number[]) => {
   const out = new Map<number, number>()
   for (const r of rows) if (r.storyId !== null && !out.has(r.storyId)) out.set(r.storyId, r.sourceId)
   return out
-}
-
-/** True when the update gate passed for the story after `since` (StoryEval logs it). */
-export const updateGatePassedSince = async (db: Db, storyId: number, since: number) => {
-  const [row] = await db
-    .select({ id: gateLog.id })
-    .from(gateLog)
-    .where(
-      and(
-        eq(gateLog.storyId, storyId),
-        eq(gateLog.gate, "update"),
-        eq(gateLog.decision, "pass"),
-        gt(gateLog.at, since),
-      ),
-    )
-    .limit(1)
-  return row !== undefined
 }

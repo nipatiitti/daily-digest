@@ -17,9 +17,11 @@ const pageNo = $derived(Math.max(1, Math.floor(Number(page.url.searchParams.get(
     {@const list = await editionPage(pageNo)}
     {#if list.rows.length}
       <ol class="grid max-w-prose divide-y divide-line">
-        {#each list.rows as e (e.date)}
+        {#each list.rows as e (e.key)}
           <li class="dd-body-sm flex flex-wrap items-baseline gap-x-6 gap-y-1 py-3">
-            <a href="/digest/{e.date}" class="dd-tick hover:underline">{e.date}</a>
+            <a href="/digest/{e.key}" class="hover:underline">
+              <span class="dd-tick">{e.date}</span>{#if e.label}&nbsp;{e.label}{/if}
+            </a>
             <span>{fmtInt(e.items)} {e.items === 1 ? "story" : "stories"}</span>
             <span class="text-ink-muted">{fmtInt(e.up)} up, {fmtInt(e.down)} down</span>
           </li>

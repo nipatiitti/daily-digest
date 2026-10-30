@@ -5,9 +5,9 @@ import { type Rubric, stories } from "./stories.ts"
 export const DIGEST_STATUSES = ["claimed", "sent", "failed"] as const
 export type DigestStatus = (typeof DIGEST_STATUSES)[number]
 
-/** One row per day; inserting it is the Digest workflow's idempotency claim. */
+/** One row per edition; inserting it is the Digest workflow's idempotency claim. */
 export const digests = sqliteTable("digests", {
-  /** YYYY-MM-DD, UTC */
+  /** Edition key: YYYY-MM-DD (UTC) for the morning edition, YYYY-MM-DD-afternoon for the afternoon one. */
   digestDate: text().primaryKey(),
   status: text({ enum: DIGEST_STATUSES }).notNull().default("claimed"),
   startedAt: nowMs(),
@@ -31,6 +31,8 @@ export const deliveries = sqliteTable(
     replyToDeliveryId: integer().references((): AnySQLiteColumn => deliveries.id),
     factIdsJson: text({ mode: "json" }).$type<number[]>(),
     scoreAtSend: real(),
+    /** Independent origins when sent; the update gate measures the origin jump from it. Null on older rows. */
+    originsAtSend: integer(),
     sentAt: nowMs(),
     silent: flag(),
   },

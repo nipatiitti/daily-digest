@@ -50,6 +50,9 @@ const byImportance = (a: StoryArticle, b: StoryArticle) =>
   (TIER_RANK[a.tier] ?? 9) - (TIER_RANK[b.tier] ?? 9) ||
   a.publishedAt - b.publishedAt
 
+/** Lowercase, punctuation stripped and whitespace collapsed, for spotting a fact the extractor repeated. */
+const normaliseFact = (text: string) => text.toLowerCase().replace(/\p{P}/gu, " ").replace(/\s+/g, " ").trim()
+
 const LLM_STEP = { retries: { limit: 2, delay: "1 minute", backoff: "exponential" }, timeout: "10 minutes" } as const
 
 /**
@@ -137,7 +140,16 @@ export class StoryEval extends WorkflowEntrypoint<Env, StoryEvalParams> {
     const stored = await step.do("store", LLM_STEP, async () => {
       const now = Date.now()
       const previous = await activeFacts(db, storyId)
-      const fresh = extraction.atomic_facts.map((f) => ({ ...f, text: sanitizeUserText(f.text) })).filter((f) => f.text)
+      // The extractor sometimes lists one claim twice; only its first wording is labelled and stored.
+      const seenTexts = new Set<string>()
+      const fresh = extraction.atomic_facts
+        .map((f) => ({ ...f, text: sanitizeUserText(f.text) }))
+        .filter((f) => {
+          const key = normaliseFact(f.text)
+          if (!key || seenTexts.has(key)) return false
+          seenTexts.add(key)
+          return true
+        })
       const labels = await labelFacts(
         llm,
         storyId,
@@ -250,7 +262,7 @@ export class StoryEval extends WorkflowEntrypoint<Env, StoryEvalParams> {
           newKeyFacts: stored.newKeyFacts,
           previousTier: delivered.scoreAtSend === null ? null : scoreTier(delivered.scoreAtSend),
           tier: stored.tier,
-          previousOrigins: null,
+          previousOrigins: delivered.originsAtSend ?? null,
           origins: story.independentOrigins,
         })
         await logGate(db, {

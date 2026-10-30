@@ -1,4 +1,4 @@
-import { DIGEST, sanitizeUserText } from "@digest/core"
+import { DIGEST, EDITION_LABEL, parseEditionKey, sanitizeUserText } from "@digest/core"
 import { escapeHtml } from "./html.ts"
 
 const HELSINKI_DATE = new Intl.DateTimeFormat("en-GB", {
@@ -9,16 +9,20 @@ const HELSINKI_DATE = new Intl.DateTimeFormat("en-GB", {
   year: "numeric",
 })
 
-const heading = (digestDate: string) => {
-  const day = new Date(`${digestDate}T12:00:00Z`)
-  const label = Number.isNaN(day.getTime()) ? digestDate : HELSINKI_DATE.format(day)
-  return `<b>Daily digest for ${escapeHtml(label)}</b>`
+/** "Morning digest for Fri 30 Oct 2026" from an edition key (editionKey); the key itself when it is not one. */
+const heading = (key: string) => {
+  const parsed = parseEditionKey(key)
+  const day = parsed ? new Date(`${parsed.date}T12:00:00Z`) : null
+  if (!parsed || !day || Number.isNaN(day.getTime())) return `<b>Digest for ${escapeHtml(key)}</b>`
+  return `<b>${EDITION_LABEL[parsed.edition]} digest for ${escapeHtml(HELSINKI_DATE.format(day))}</b>`
 }
 
-export const renderEmptyDigest = (digestDate: string) => `${heading(digestDate)}\n\nNothing notable today.`
+const part = (key: string) => parseEditionKey(key)?.edition ?? "morning"
 
-export const renderDigestHeader = (digestDate: string, count: number) =>
-  `${heading(digestDate)}\n\n${count} ${count === 1 ? "story" : "stories"} today.`
+export const renderEmptyDigest = (key: string) => `${heading(key)}\n\nNothing new this ${part(key)}.`
+
+export const renderDigestHeader = (key: string, count: number) =>
+  `${heading(key)}\n\n${count} ${count === 1 ? "story" : "stories"} this ${part(key)}.`
 
 export type ItemLink = { url: string; label: string }
 
