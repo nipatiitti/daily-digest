@@ -61,7 +61,13 @@ export const storiesBrief = (db: Db, ids: number[]) =>
   ids.length === 0
     ? Promise.resolve([])
     : db
-        .select({ id: stories.id, title: stories.title, category: stories.category, status: stories.status })
+        .select({
+          id: stories.id,
+          title: stories.title,
+          category: stories.category,
+          status: stories.status,
+          firstSeen: stories.firstSeen,
+        })
         .from(stories)
         .where(inArray(stories.id, ids))
 

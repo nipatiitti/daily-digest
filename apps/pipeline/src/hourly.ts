@@ -1,6 +1,7 @@
 import type { Db } from "@digest/db"
 import { briefStep } from "./hourly/brief.ts"
 import { entitiesStep } from "./hourly/entities.ts"
+import { mergeStep } from "./hourly/merge.ts"
 import { momentumStep } from "./hourly/momentum.ts"
 import { rollupStep } from "./hourly/rollups.ts"
 import { themesStep } from "./hourly/themes.ts"
@@ -12,6 +13,8 @@ type Step = { name: string; run: () => Promise<Record<string, number>> }
 export const runHourly = async (env: Env, db: Db, llm: ReturnType<typeof llmFor>, now: number) => {
   const steps: Step[] = [
     { name: "rollups", run: () => rollupStep(db, now) },
+    // Before entities and themes, which read story ids.
+    { name: "merge", run: () => mergeStep(env, db, llm, now) },
     { name: "entities", run: () => entitiesStep(db, now) },
     { name: "themes", run: () => themesStep(env, db, llm, now) },
     { name: "momentum", run: () => momentumStep(db, now) },

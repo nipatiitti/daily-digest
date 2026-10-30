@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 20
+export const CONFIG_VERSION = 21
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -26,9 +26,13 @@ export const MATCH = {
   copyTitleJaccard: 0.55,
   /** Join the best story automatically at or above this. */
   joinCosine: 0.85,
-  /** Start a new story below this; in between, ask Haiku "same real-world event?". */
-  /** Lowered from 0.75 so cross-language reports of one event reach the Haiku ask instead of a new story. */
-  newStoryCosine: 0.65,
+  /**
+   * Start a new story below this; in between, ask Haiku which candidate story, if any, the article belongs to.
+   * Cross-language reports of one event sit around 0.6, so the band starts below them.
+   */
+  newStoryCosine: 0.55,
+  /** Candidate stories in the ask band offered to Haiku in one call, best first. */
+  askCandidates: 3,
   /** Used in the ask band when no LLM key is configured. */
   fallbackCosine: 0.8,
   topK: 20,
@@ -116,11 +120,6 @@ export const DIGEST = {
   /** Candidates are stories that changed within this window before the run. */
   windowHours: 30,
   maxLinks: 3,
-  /**
-   * Before slotting, the top candidates are checked for the same event against the top stories already delivered,
-   * then pairwise against each other, and merged.
-   */
-  dedupeTop: 14,
   /** UTC hours the two editions go out; the digest crons in apps/pipeline/wrangler.jsonc must match. */
   editions: { morning: 6, afternoon: 15 },
 }
@@ -139,6 +138,12 @@ export const HOURLY = {
   recomputeBuckets: 3,
   /** Momentum compares the last N complete hours with the N before: short is momentum_24h, long is momentum_7d. */
   momentumWindows: { short: 24, long: 168 },
+  /**
+   * Story merge pass, before entities and themes. Each active story first seen within `recentHours` looks up the
+   * `topK` nearest articles to its lead article; a close story in the same topic group merges outright on a wire copy
+   * cosine or title, otherwise after Haiku says it is the same story. At most `maxAsksPerRun` asks per run.
+   */
+  merge: { recentHours: 48, topK: 10, maxAsksPerRun: 20 },
 }
 
 /** Entities folded hourly from StoryEval's extraction into `entities` and `story_entities`. */

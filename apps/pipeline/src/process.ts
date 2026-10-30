@@ -27,7 +27,7 @@ import {
   storiesBrief,
   storiesWithCves,
 } from "@digest/db"
-import { type Llm, LlmRefusal, SpendCapError, sameEvent } from "@digest/llm"
+import { type Llm, LlmRefusal, pickStory, SpendCapError } from "@digest/llm"
 import type { StoryEvalParams } from "./story-eval.ts"
 
 export type ProcessMessage = { articleId: number }
@@ -144,18 +144,37 @@ const place = async (
       ? { ...candidate, storyId: best[0], how: "join-fallback" }
       : { ...candidate, storyId: null, how: "new-fallback" }
 
-  // 4. The ask band.
+  // 4. The ask band: one Haiku call over the best few candidate stories.
   if (!llm) return fallback()
-  const [story] = await storiesBrief(db, [best[0]])
-  const titles = near.filter((n) => n.storyId === best[0]).map((n) => n.title)
+  const asked = ranked.filter(([, score]) => score >= MATCH.newStoryCosine).slice(0, MATCH.askCandidates)
+  const briefs = new Map(
+    (
+      await storiesBrief(
+        db,
+        asked.map(([id]) => id),
+      )
+    ).map((s) => [s.id, s]),
+  )
+  const candidates = asked.map(([id]) => {
+    const titles = near.filter((n) => n.storyId === id).map((n) => n.title)
+    const s = briefs.get(id)
+    return { id, title: s?.title ?? titles[0] ?? "", articleTitles: titles.slice(0, 5), firstSeen: s?.firstSeen }
+  })
   try {
-    const same = await sameEvent(
+    const pick = await pickStory(
       llm,
-      { title: article.title, snippet: article.snippet, source: String(article.sourceId) },
-      { title: story?.title ?? titles[0] ?? "", articleTitles: titles.slice(0, 5) },
+      {
+        title: article.title,
+        snippet: article.snippet,
+        source: String(article.sourceId),
+        publishedAt: article.publishedAt,
+      },
+      candidates,
       best[0],
     )
-    return same ? { ...candidate, storyId: best[0], how: "ask-yes" } : { ...candidate, storyId: null, how: "ask-no" }
+    const chosen = asked.find(([id]) => id === pick.story_id)
+    if (!chosen) return { ...candidate, storyId: null, how: "ask-no" }
+    return { originId: null, storyId: chosen[0], how: "ask-yes", candidateStoryId: chosen[0], cosine: chosen[1] }
   } catch (e) {
     if (e instanceof SpendCapError || e instanceof LlmRefusal) {
       log("match_ask_skipped", { articleId: article.id, error: String(e) })

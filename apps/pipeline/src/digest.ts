@@ -1,5 +1,5 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers"
-import { DIGEST, type Edition, editionKey, fillSlots, MATCH, titleJaccard } from "@digest/core"
+import { DIGEST, type Edition, editionKey, fillSlots } from "@digest/core"
 import {
   activeFactIds,
   changedStories,
@@ -9,13 +9,11 @@ import {
   getStory,
   latestDeliveries,
   mainSources,
-  mergeStories,
   previousDigestSentAt,
   recordDelivery,
   setDeliveryMessageId,
   storyArticles,
 } from "@digest/db"
-import { type Llm, LlmRefusal, SpendCapError, sameStory } from "@digest/llm"
 import {
   feedbackKeyboard,
   parseChatIds,
@@ -25,7 +23,6 @@ import {
   storyItem,
 } from "@digest/telegram"
 import { Api } from "grammy"
-import { llmFor } from "./llm.ts"
 
 export type DigestParams = {
   /** YYYY-MM-DD (UTC); with the edition it makes the idempotency key (editionKey). */
@@ -46,103 +43,16 @@ type Candidate = {
   mainSourceId: number
 }
 
-/** A story that changed since the previous edition but was already delivered, so it is never sent again. */
-type Delivered = { storyId: number; topic: Topic; score: number }
-
 const SEND = { retries: { limit: 5, delay: "30 seconds", backoff: "exponential" }, timeout: "1 minute" } as const
 const HOUR = 3_600_000
 
 const log = (event: string, data: Record<string, unknown>) => console.log(JSON.stringify({ event, ...data }))
-/** Two stories look like one event when their titles overlap heavily or Haiku says so. */
-const sameEventStories = async (db: ReturnType<typeof getDb>, llm: Llm | null, a: number, b: number) => {
-  const [sa, sb] = await Promise.all([getStory(db, a), getStory(db, b)])
-  if (!sa || !sb) return false
-  if (titleJaccard(sa.title, sb.title) >= MATCH.copyTitleJaccard) return true
-  if (!llm) return false
-  const [la, lb] = await Promise.all([storyArticles(db, a), storyArticles(db, b)])
-  try {
-    return await sameStory(
-      llm,
-      { title: sa.title, articleTitles: la.slice(0, 5).map((x) => x.title) },
-      { title: sb.title, articleTitles: lb.slice(0, 5).map((x) => x.title) },
-      a,
-    )
-  } catch (e) {
-    if (e instanceof SpendCapError || e instanceof LlmRefusal) {
-      log("digest_dedupe_skipped", { a, b, error: String(e) })
-      return false
-    }
-    throw e
-  }
-}
-
-/** World stories are only compared with world stories, and security and tech with each other. */
-const sameGroup = (a: Topic, b: Topic) => (a === "world") === (b === "world")
-
-/**
- * A candidate that is the same event as a story already delivered folds into that story and is dropped, so a second
- * story about something the reader already got never goes out as new. The top candidates are checked against the top
- * delivered stories that changed since the previous edition.
- */
-const dropDelivered = async (
-  db: ReturnType<typeof getDb>,
-  llm: Llm | null,
-  candidates: Candidate[],
-  delivered: Delivered[],
-  now: number,
-) => {
-  const top = [...candidates].sort((a, b) => b.score - a.score).slice(0, DIGEST.dedupeTop)
-  const against = [...delivered].sort((a, b) => b.score - a.score).slice(0, DIGEST.dedupeTop)
-  const merged = new Set<number>()
-  for (const c of top) {
-    for (const d of against) {
-      if (!sameGroup(c.topic, d.topic)) continue
-      if (!(await sameEventStories(db, llm, c.storyId, d.storyId))) continue
-      await mergeStories(db, c.storyId, d.storyId, now)
-      merged.add(c.storyId)
-      log("digest_merged_into_delivered", { from: c.storyId, into: d.storyId })
-      break
-    }
-  }
-  return candidates.filter((c) => !merged.has(c.storyId))
-}
-
-/**
- * Same-event stories that the matcher kept apart (typically one in Finnish, one in English) are
- * merged here before slotting: the lower-scored story folds into the higher one. Only the top
- * candidates within one topic group are compared, so the Haiku cost stays at a few cents.
- */
-const dedupeCandidates = async (
-  db: ReturnType<typeof getDb>,
-  llm: Llm | null,
-  candidates: Candidate[],
-  now: number,
-) => {
-  const top = [...candidates].sort((a, b) => b.score - a.score).slice(0, DIGEST.dedupeTop)
-  const rest = candidates.filter((c) => !top.includes(c))
-  const merged = new Set<number>()
-  for (let i = 0; i < top.length; i++) {
-    const keep = top[i]
-    if (!keep || merged.has(keep.storyId)) continue
-    for (let j = i + 1; j < top.length; j++) {
-      const other = top[j]
-      if (!other || merged.has(other.storyId)) continue
-      if (!sameGroup(keep.topic, other.topic)) continue
-      if (!(await sameEventStories(db, llm, keep.storyId, other.storyId))) continue
-      await mergeStories(db, other.storyId, keep.storyId, now)
-      merged.add(other.storyId)
-      keep.fiRelevance = Math.max(keep.fiRelevance, other.fiRelevance)
-      log("digest_merged", { from: other.storyId, into: keep.storyId })
-    }
-  }
-  return [...top.filter((c) => !merged.has(c.storyId)), ...rest]
-}
 
 /**
  * Digest, a morning and an afternoon edition: candidates are scored stories that changed since the previous edition
- * and were never delivered. A delivered story is never sent again, and a candidate that is the same event as one is
- * merged into it. Slots are filled in code, one Telegram message per item, each with its own delivery row and vote
- * buttons.
+ * and were never delivered, so a delivered story is never sent again. Same-event stories are merged before this by
+ * the matcher and the hourly merge pass, and a merge carries deliveries to the surviving story. Slots are filled in
+ * code, one Telegram message per item, each with its own delivery row and vote buttons.
  */
 export class Digest extends WorkflowEntrypoint<Env, DigestParams> {
   override async run(event: WorkflowEvent<DigestParams>, step: WorkflowStep) {
@@ -150,7 +60,6 @@ export class Digest extends WorkflowEntrypoint<Env, DigestParams> {
     const { date, edition = "morning" } = event.payload
     const key = editionKey(date, edition)
     const db = getDb(this.env.DB)
-    const llm = llmFor(this.env, db)
 
     const claimed = await step.do("claim", () => claimDigest(db, key))
     if (!claimed) return { skipped: "already claimed" }
@@ -162,13 +71,8 @@ export class Digest extends WorkflowEntrypoint<Env, DigestParams> {
       const ids = changed.map((s) => s.id)
       const [prior, sources] = await Promise.all([latestDeliveries(db, ids), mainSources(db, ids)])
       const candidates: Candidate[] = []
-      const delivered: Delivered[] = []
       for (const s of changed) {
-        if (s.score === null || s.category === "fi") continue
-        if (prior.has(s.id)) {
-          delivered.push({ storyId: s.id, topic: s.category, score: s.score })
-          continue
-        }
+        if (s.score === null || s.category === "fi" || prior.has(s.id)) continue
         candidates.push({
           storyId: s.id,
           topic: s.category,
@@ -178,17 +82,8 @@ export class Digest extends WorkflowEntrypoint<Env, DigestParams> {
           mainSourceId: sources.get(s.id) ?? 0,
         })
       }
-      const fresh = await dropDelivered(db, llm, candidates, delivered, now)
-      const deduped = await dedupeCandidates(db, llm, fresh, now)
-      const picked = fillSlots(deduped).map((c) => ({ storyId: c.storyId, score: c.score }))
-      log("digest_selected", {
-        date,
-        edition,
-        candidates: candidates.length,
-        mergedIntoDelivered: candidates.length - fresh.length,
-        merged: fresh.length - deduped.length,
-        picked: picked.map((p) => p.storyId),
-      })
+      const picked = fillSlots(candidates).map((c) => ({ storyId: c.storyId, score: c.score }))
+      log("digest_selected", { date, edition, candidates: candidates.length, picked: picked.map((p) => p.storyId) })
       return picked
     })
 

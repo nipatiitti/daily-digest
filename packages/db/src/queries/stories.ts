@@ -5,6 +5,7 @@ import {
   deliveries,
   type FactStatus,
   facts,
+  feedback,
   type Rubric,
   rollups,
   sources,
@@ -205,9 +206,61 @@ export const unassignedArticleCount = async (db: Db) => {
 }
 
 /**
- * Fold one story into another: articles and CVE links move, the merged story is closed with a
- * pointer, and the target's counters are recomputed. The target's extraction hash is cleared so
- * the next process pass re-evaluates it with the combined evidence.
+ * Articles of active stories first seen since `since`, earliest first, with the story fields the hourly merge pass
+ * reads. A story's first origin article (`originId` null) is its lead.
+ */
+export const recentStoryArticles = (db: Db, since: number) =>
+  db
+    .select({
+      storyId: stories.id,
+      storyTitle: stories.title,
+      category: stories.category,
+      firstSeen: stories.firstSeen,
+      id: articles.id,
+      sourceId: articles.sourceId,
+      title: articles.title,
+      originId: articles.originId,
+      publishedAt: articles.publishedAt,
+    })
+    .from(articles)
+    .innerJoin(stories, eq(stories.id, articles.storyId))
+    .where(and(eq(stories.status, "active"), gte(stories.firstSeen, since)))
+    .orderBy(articles.publishedAt)
+
+const articleStoryChunk = (db: Db, ids: number[]) =>
+  db
+    .select({
+      id: articles.id,
+      sourceId: articles.sourceId,
+      title: articles.title,
+      storyId: stories.id,
+      storyTitle: stories.title,
+      status: stories.status,
+      category: stories.category,
+      firstSeen: stories.firstSeen,
+    })
+    .from(articles)
+    .innerJoin(stories, eq(stories.id, articles.storyId))
+    .where(inArray(articles.id, ids))
+
+export type ArticleStory = Awaited<ReturnType<typeof articleStoryChunk>>[number]
+
+/** The story each of these articles sits in, with its status and category, in one D1 batch. */
+export const articleStories = async (db: Db, ids: number[]): Promise<ArticleStory[]> => {
+  const chunks = chunkRows([...new Set(ids)], 1)
+  const results = await runBatch(
+    db,
+    chunks.map((chunk) => articleStoryChunk(db, chunk)),
+  )
+  return (results as ArticleStory[][]).flat()
+}
+
+/**
+ * Fold one story into another: articles, rollups, CVE links, facts, deliveries and their votes move, the merged story
+ * is closed with a pointer, and the target's counters are recomputed. Deliveries move so a story that was sent stays
+ * sent after a merge, and facts move so the novelty check compares new facts with everything already known. Gate log
+ * rows stay with the story they were decided for. The target's extraction hash is cleared so the next process pass
+ * re-evaluates it with the combined evidence.
  */
 export const mergeStories = async (
   db: Db,
@@ -222,6 +275,9 @@ export const mergeStories = async (
   const [from, into] = [String(fromId), String(intoId)]
   await runBatch(db, [
     db.update(articles).set({ storyId: intoId }).where(eq(articles.storyId, fromId)),
+    db.update(facts).set({ storyId: intoId }).where(eq(facts.storyId, fromId)),
+    db.update(deliveries).set({ storyId: intoId }).where(eq(deliveries.storyId, fromId)),
+    db.update(feedback).set({ storyId: intoId }).where(eq(feedback.storyId, fromId)),
     // Columns in table order. A parameterised db.run(sql) can't go in a D1 batch, so the select is the raw part.
     db
       .insert(rollups)
