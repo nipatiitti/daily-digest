@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 17
+export const CONFIG_VERSION = 18
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -291,4 +291,6 @@ export const DASHBOARD = {
    */
   spendCapUsd: 2,
   answerMaxTokens: 1024,
+  /** Days a month in review covers: the stories that joined a signal or met an entity, or a story's new facts. */
+  reviewDays: 30,
 }

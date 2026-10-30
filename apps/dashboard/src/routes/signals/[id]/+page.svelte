@@ -1,11 +1,14 @@
 <script lang="ts">
 import { TrendChart } from "#lib/charts/index.ts"
-import { Button, Delta, EntityChip, fmtInt, fmtTime, padId, StoryCard } from "#lib/components/index.ts"
+import { pairId } from "#lib/components/AskButton.svelte"
+import { AskButton, Button, Delta, EntityChip, fmtInt, fmtTime, padId, StoryCard } from "#lib/components/index.ts"
 import { page } from "$app/state"
 import { closeForm, detachForm, mergeForm, renameForm, signalPage } from "./signal.remote.ts"
 
 const p = $derived(await signalPage(Number(page.params.id)))
 const t = $derived(p.theme)
+/** The signal to compare this one with. */
+let other = $state<number | null>(null)
 const sig = (id: number) => `/signals/${id}`
 const sty = (id: number) => `/stories/${id}`
 const input = "h-(--size-control-sm) w-48 rounded-full border border-line-control bg-surface px-3 text-sm text-ink"
@@ -145,6 +148,18 @@ const confirmed = (question: string) => async (f: { submit: () => Promise<unknow
     {:else}
       <p class="dd-body text-ink-muted">No stories linked.</p>
     {/if}
+  </section>
+
+  <section class="grid gap-6">
+    <h2 class="dd-label">Ask Claude</h2>
+    {#key t.id}
+      <AskButton purpose="review" subjectKind="theme" subjectId={t.id} label="Month in review" />
+      <AskButton purpose="compare" subjectKind="theme" subjectId={pairId(t.id, other)} label="Compare">
+        <label class="dd-label">
+          With signal ID <input type="number" min="1" bind:value={other} class={input} />
+        </label>
+      </AskButton>
+    {/key}
   </section>
 
   <section class="grid gap-6 rounded-lg border border-line bg-surface p-6 shadow-sm">

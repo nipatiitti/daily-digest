@@ -9,8 +9,17 @@ import type { RequestHandler } from "./$types"
 const Body = z.object({
   purpose: z.enum(DASHBOARD_LLM_PURPOSES),
   subjectKind: z.enum(ACTION_SUBJECTS),
-  /** Canonical digits only, so one subject has one cache key. */
-  subjectId: z.string().regex(/^[1-9]\d{0,15}$/),
+  /**
+   * Canonical per button, so one subject has one cache key: `12`, `12-34` lower first, `streams.7d` or `desk`.
+   * answerCall finds nothing for any other spelling.
+   */
+  subjectId: z.string().regex(/^[\w.-]{1,64}$/),
+  /** Ask the desk's question, trimmed with its whitespace collapsed, so one question hashes the same. */
+  question: z
+    .string()
+    .transform((s) => s.replace(/\s+/g, " ").trim())
+    .pipe(z.string().min(1).max(500))
+    .optional(),
 })
 
 const TEXT = { "content-type": "text/plain; charset=utf-8" }
@@ -28,14 +37,15 @@ const sha256 = async (s: string) =>
  */
 export const POST: RequestHandler = async ({ request }) => {
   const body = Body.safeParse(await request.json().catch(() => null))
-  if (!body.success) return plain(400, "Send purpose, subjectKind and subjectId as JSON.")
-  const { purpose, subjectKind, subjectId } = body.data
-  const call = await answerCall(purpose, subjectKind, subjectId)
+  if (!body.success) return plain(400, "Send purpose, subjectKind, subjectId and any question as JSON.")
+  const { purpose, subjectKind, subjectId, question } = body.data
+  const call = await answerCall(purpose, subjectKind, subjectId, question)
   if (!call) return plain(404, `Nothing to answer about ${subjectKind} ${subjectId}.`)
 
   const d = db()
+  // The prompt carries the question, so the hash covers it.
   const input = [call.model, call.system, call.prompt, call.maxTokens, call.effort]
-  const key = { ...body.data, inputHash: await sha256(JSON.stringify(input)) }
+  const key = { purpose, subjectKind, subjectId, inputHash: await sha256(JSON.stringify(input)) }
   const cached = await cachedAnswer(d, key)
   if (cached) return new Response(cached.text, { headers: { ...TEXT, "x-answer-cached": "1" } })
 

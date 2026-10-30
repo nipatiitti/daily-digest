@@ -983,3 +983,147 @@ export const digestDay = (db: Db, date: string, from: number, to: number) => {
     .groupBy(stories.id, deliveries.kind)
     .orderBy(sentAt)
 }
+
+/** The story columns an on-demand answer reads, before withStoryCounts adds the counts. */
+const answerStoryColumns = {
+  id: stories.id,
+  category: stories.category,
+  status: stories.status,
+  score: stories.score,
+  title: stories.title,
+  summary: stories.summary,
+  origins: stories.independentOrigins,
+  momentum24h: stories.momentum24h,
+  firstSeen: stories.firstSeen,
+  lastArticleAt: stories.lastArticleAt,
+}
+
+/** Supporting articles of a fact, as storyFacts counts them. */
+const factSources = sql<number>`json_array_length(${facts.supportingArticleIdsJson})`
+
+/** Unmerged stories first seen in [from, to): the `limit` with the most independent origins, oldest first, counted. */
+export const storiesFirstSeenBetween = async (db: Db, from: number, to: number, limit: number) => {
+  const rows = await db
+    .select(answerStoryColumns)
+    .from(stories)
+    .where(and(ne(stories.status, "merged"), gte(stories.firstSeen, from), lt(stories.firstSeen, to)))
+    .orderBy(desc(stories.independentOrigins), desc(stories.firstSeen))
+    .limit(limit)
+  return withStoryCounts(
+    db,
+    rows.sort((a, b) => a.firstSeen - b.firstSeen),
+  )
+}
+
+/**
+ * Unmerged stories that joined a theme (links a reader sees) or met an entity since `since`: the newest `limit`,
+ * oldest first, each with when it joined and its counts.
+ */
+export const storiesJoinedSince = async (
+  db: Db,
+  kind: "theme" | "entity",
+  id: number,
+  o: { since: number; limit: number },
+) => {
+  const unmerged = ne(stories.status, "merged")
+  const rows = await (kind === "theme"
+    ? db
+        .select({ ...answerStoryColumns, joinedAt: storyThemes.assignedAt })
+        .from(storyThemes)
+        .innerJoin(stories, eq(stories.id, storyThemes.storyId))
+        .where(and(eq(storyThemes.themeId, id), themeLinked, unmerged, gte(storyThemes.assignedAt, o.since)))
+        .orderBy(desc(storyThemes.assignedAt))
+        .limit(o.limit)
+    : db
+        .select({ ...answerStoryColumns, joinedAt: storyEntities.firstSeen })
+        .from(storyEntities)
+        .innerJoin(stories, eq(stories.id, storyEntities.storyId))
+        .where(and(eq(storyEntities.entityId, id), unmerged, gte(storyEntities.firstSeen, o.since)))
+        .orderBy(desc(storyEntities.firstSeen))
+        .limit(o.limit))
+  return withStoryCounts(db, rows.toReversed())
+}
+
+/** A story's facts first seen since `since`: the newest `limit`, oldest first. */
+export const storyFactsSince = async (db: Db, storyId: number, since: number, limit: number) => {
+  const rows = await db
+    .select({ id: facts.id, text: facts.text, status: facts.status, firstSeen: facts.firstSeen, sources: factSources })
+    .from(facts)
+    .where(and(eq(facts.storyId, storyId), gte(facts.firstSeen, since)))
+    .orderBy(desc(facts.firstSeen), desc(facts.id))
+    .limit(limit)
+  return rows.toReversed()
+}
+
+/** These unmerged stories by id, with their counts and up to `factsEach` active facts each, most salient first. */
+export const storiesWithFacts = async (db: Db, ids: number[], factsEach: number) => {
+  if (ids.length === 0) return []
+  const [rows, factRows] = await Promise.all([
+    db
+      .select(answerStoryColumns)
+      .from(stories)
+      .where(and(inArray(stories.id, ids), ne(stories.status, "merged")))
+      .orderBy(stories.id),
+    factsEach > 0
+      ? db
+          .select({ storyId: facts.storyId, text: facts.text, status: facts.status, sources: factSources })
+          .from(facts)
+          .where(and(inArray(facts.storyId, ids), eq(facts.status, "active")))
+          .orderBy(desc(facts.salience), facts.firstSeen)
+      : [],
+  ])
+  const byStory = new Map<number, typeof factRows>()
+  for (const f of factRows) {
+    const list = byStory.get(f.storyId) ?? []
+    if (list.length < factsEach) byStory.set(f.storyId, [...list, f])
+  }
+  return (await withStoryCounts(db, rows)).map((s) => ({ ...s, facts: byStory.get(s.id) ?? [] }))
+}
+
+/**
+ * The best FTS5 matches for a question: up to `limit` unmerged stories, with up to `factsEach` facts each, and up to
+ * `limit` active or closed themes. A question matches on any of its words, where ftsMatch needs every word.
+ */
+export const askHits = async (db: Db, question: string, o: { limit: number; factsEach: number }) => {
+  const match = question
+    .split(/[^\p{L}\p{N}]+/u)
+    .map(ftsMatch)
+    .filter(Boolean)
+    .join(" OR ")
+  if (!match) return { stories: [], signals: [] }
+  const [storyRows, signals] = await Promise.all([
+    db
+      .select({ id: stories.id })
+      .from(stories)
+      .where(
+        sql`${stories.id} in (select rowid from stories_fts where stories_fts match ${match} order by rank limit ${o.limit})`,
+      ),
+    db
+      .select({
+        id: themes.id,
+        name: themes.name,
+        description: themes.description,
+        status: themes.status,
+        storyCount: themes.storyCount,
+        momentum24h: themes.momentum24h,
+        momentum7d: themes.momentum7d,
+        explanation: themes.explanation,
+      })
+      .from(themes)
+      .where(
+        and(
+          inArray(themes.status, ["active", "closed"]),
+          sql`${themes.id} in (select rowid from themes_fts where themes_fts match ${match} order by rank limit ${o.limit})`,
+        ),
+      )
+      .orderBy(desc(themes.lastSeen)),
+  ])
+  return {
+    stories: await storiesWithFacts(
+      db,
+      storyRows.map((r) => r.id),
+      o.factsEach,
+    ),
+    signals,
+  }
+}

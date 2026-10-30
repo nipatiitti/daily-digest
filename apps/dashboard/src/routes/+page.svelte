@@ -2,6 +2,7 @@
 import { DASHBOARD } from "@digest/core"
 import { Sparkline, StoryNetwork, type Stream, TrendChart } from "#lib/charts/index.ts"
 import {
+  AskButton,
   Delta,
   FactRow,
   fmtInt,
@@ -184,6 +185,9 @@ const today = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "U
         search={seriesSearch}
       />
     </svelte:boundary>
+    {#key range}
+      <AskButton purpose="explain" subjectKind="cell" subjectId="streams.{range}" label="Explain this spike" />
+    {/key}
   </section>
 
   <section class="grid gap-6">

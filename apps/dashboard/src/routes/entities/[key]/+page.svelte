@@ -1,6 +1,6 @@
 <script lang="ts">
 import { TrendChart } from "#lib/charts/index.ts"
-import { Button, Delta, entityHref, fmtInt, fmtTime, StoryCard } from "#lib/components/index.ts"
+import { AskButton, Button, Delta, entityHref, fmtInt, fmtTime, StoryCard } from "#lib/components/index.ts"
 import { page } from "$app/state"
 import { entityPage, mergeForm, renameForm } from "./entity.remote.ts"
 
@@ -88,6 +88,13 @@ const confirmed = (question: string) => async (f: { submit: () => Promise<unknow
     {:else}
       <p class="dd-body text-ink-muted">No stories linked.</p>
     {/if}
+  </section>
+
+  <section class="grid gap-6">
+    <h2 class="dd-label">Ask Claude</h2>
+    {#key e.id}
+      <AskButton purpose="review" subjectKind="entity" subjectId={e.id} label="Month in review" />
+    {/key}
   </section>
 
   <section class="grid gap-6 rounded-lg border border-line bg-surface p-6 shadow-sm">

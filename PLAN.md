@@ -118,7 +118,7 @@ Done when a walking skeleton runs in production: at 07:00 UTC a "Nothing notable
 9. Story, article and entity pages with audited actions. Done 29 Oct.
 10. Hourly loop: rollups per hour and subject, entities folded from extraction, themes shown as signals, momentum and Holt forecast. Done 29 Oct.
 11. Hourly brief in the hero and at `/briefs`, with an explanation per moving signal. Done 29 Oct.
-12. On-demand Claude answers at `POST /api/answer` under their own `DASHBOARD_SPEND_CAP_USD`, first "Explain the score". Done 29 Oct.
+12. On-demand Claude answers at `POST /api/answer` under their own `DASHBOARD_SPEND_CAP_USD`, "Explain the score", "Explain this spike", "Compare", "Month in review" and "Ask the desk" at `/ask`. Done 30 Oct.
 13. Sources page with audited enable, disable, poll now and reset. Done 29 Oct.
 14. Ops page: spend by day and purpose, gate log, StoryEval activity, database size, calibration, loop health. Done 29 Oct.
 15. Digest archive at `/digest` with each edition as Telegram rendered it, and "Send to Telegram now" on the story page. Done 30 Oct.

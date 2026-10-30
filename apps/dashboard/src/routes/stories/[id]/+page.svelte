@@ -1,5 +1,6 @@
 <script lang="ts">
 import { BarChart, TrendChart } from "#lib/charts/index.ts"
+import { pairId } from "#lib/components/AskButton.svelte"
 import {
   AskButton,
   Button,
@@ -21,6 +22,8 @@ import { closeForm, factStatusForm, followForm, mergeForm, requeueForm, storyPag
 
 const p = $derived(await storyPage(Number(page.params.id)))
 const s = $derived(p.story)
+/** The story to compare this one with. */
+let other = $state<number | null>(null)
 const stream = $derived(streamSlot(s.category))
 
 /** Statuses, gates, delivery and signal kinds, action kinds and placement methods as the page says them. */
@@ -240,6 +243,18 @@ const noFacts = $derived(p.facts.every((g) => g.rows.length === 0))
     {:else}
       <p class="dd-body text-ink-muted">Not scored yet.</p>
     {/if}
+  </section>
+
+  <section class="grid gap-6">
+    <h2 class="dd-label">Ask Claude</h2>
+    {#key s.id}
+      <AskButton purpose="review" subjectKind="story" subjectId={s.id} label="Month in review" />
+      <AskButton purpose="compare" subjectKind="story" subjectId={pairId(s.id, other)} label="Compare">
+        <label class="dd-label">
+          With story ID <input type="number" min="1" bind:value={other} class={input} />
+        </label>
+      </AskButton>
+    {/key}
   </section>
 
   <section class="grid gap-6">
