@@ -1,4 +1,4 @@
-import { sanitizeUserText } from "@digest/core"
+import { DIGEST, sanitizeUserText } from "@digest/core"
 import { escapeHtml } from "./html.ts"
 
 const HELSINKI_DATE = new Intl.DateTimeFormat("en-GB", {
@@ -32,6 +32,59 @@ export type DigestItem = {
   links: ItemLink[]
   isUpdate: boolean
 }
+
+/** The article fields link picking reads; a story's articles from the database fit it. */
+export type LinkArticle = {
+  originId: number | null
+  authoritative: boolean
+  tier: string
+  publishedAt: number
+  domain: string
+  canonicalUrl: string
+  sourceName: string
+}
+
+const TIER_RANK: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 }
+
+/** Links chosen by code: origins only, authoritative first, one per domain, at most DIGEST.maxLinks. */
+export const pickLinks = (list: LinkArticle[]): ItemLink[] => {
+  const seen = new Set<string>()
+  return [...list]
+    .filter((a) => a.originId === null)
+    .sort(
+      (a, b) =>
+        Number(b.authoritative) - Number(a.authoritative) ||
+        (TIER_RANK[a.tier] ?? 9) - (TIER_RANK[b.tier] ?? 9) ||
+        a.publishedAt - b.publishedAt,
+    )
+    .filter((a) => {
+      if (seen.has(a.domain)) return false
+      seen.add(a.domain)
+      return true
+    })
+    .slice(0, DIGEST.maxLinks)
+    .map((a) => ({ url: a.canonicalUrl, label: a.sourceName }))
+}
+
+/** The story fields a digest item is built from. */
+export type ItemStory = {
+  category: DigestItem["topic"]
+  fiRelevance: number
+  title: string
+  summary: string | null
+  independentOrigins: number
+}
+
+/** A stored story as one digest item, links picked from its articles. */
+export const storyItem = (s: ItemStory, list: LinkArticle[], isUpdate: boolean): DigestItem => ({
+  topic: s.category,
+  fiRelevance: s.fiRelevance,
+  headline: s.title,
+  summary: s.summary ?? "",
+  origins: s.independentOrigins,
+  links: pickLinks(list),
+  isUpdate,
+})
 
 const TAG: Record<DigestItem["topic"], string> = { security: "Security", tech: "Tech", world: "World", fi: "Finland" }
 

@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 16
+export const CONFIG_VERSION = 17
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -264,6 +264,8 @@ export const DASHBOARD = {
   exportMaxRows: 10_000,
   /** Rows per page in the table browser. */
   browsePageSize: 100,
+  /** UTC days of digest editions per archive page. */
+  digestPageDays: 30,
   /** Stories in the front page network, most articles first, and how many of them carry a label without hovering. */
   networkNodes: 60,
   networkLabels: 10,

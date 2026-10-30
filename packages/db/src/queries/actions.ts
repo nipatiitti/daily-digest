@@ -5,12 +5,14 @@ import {
   articles,
   coerce,
   columnOf,
+  deliveries,
   entities,
   type FactStatus,
   facts,
   follows,
   rollups,
   rowWhere,
+  type Story,
   sources,
   stories,
   storyEntities,
@@ -19,6 +21,7 @@ import {
   themes,
 } from "../schema/index.ts"
 import { rowById } from "./dashboard.ts"
+import { recordDelivery, setDeliveryMessageId } from "./delivery.ts"
 import { entityById, refreshEntityCounts, refreshEntityRollups } from "./entities.ts"
 import { getSource } from "./sources.ts"
 import { getStory, mergeStories, setFactStatus } from "./stories.ts"
@@ -454,3 +457,45 @@ export const pollSourceNow = (db: Db, id: number, by: string) => writeSource(db,
 /** Forgets the failures behind its backoff and makes it due at once. */
 export const resetSourceBackoff = (db: Db, id: number, by: string) =>
   writeSource(db, id, by, "reset_backoff", { consecutiveFailures: 0, nextPollAt: 0 })
+
+/** What sendStoryNow needs from Telegram, which db does not import: the story as one message, and its send. */
+export type StorySender = {
+  render: (story: Story) => Promise<string>
+  /** Sends the message with the vote row for `deliveryId` and resolves to its Telegram message ID. */
+  send: (chatId: number, html: string, deliveryId: number) => Promise<number>
+}
+
+/**
+ * Sends a story to every chat now as an alert, keeping its score at send. The vote row carries the delivery's ID, so
+ * each delivery row is written before its send, and the row of a send that failed is deleted again in one batch with
+ * the message IDs and the audit row. Throws when no chat got the message.
+ */
+export const sendStoryNow = async (db: Db, bot: StorySender, chatIds: number[], storyId: number, by: string) => {
+  const story = await liveStory(db, storyId)
+  if (chatIds.length === 0) throw new Error("TELEGRAM_CHAT_IDS is empty, so there is no chat to send to")
+  const html = await bot.render(story)
+  const sent: { chatId: number; deliveryId: number; messageId: number }[] = []
+  const failed: { chatId: number; deliveryId: number; error: string }[] = []
+  for (const chatId of chatIds) {
+    const deliveryId = await recordDelivery(db, { kind: "alert", storyId, chatId, scoreAtSend: story.score })
+    try {
+      sent.push({ chatId, deliveryId, messageId: await bot.send(chatId, html, deliveryId) })
+    } catch (e) {
+      failed.push({ chatId, deliveryId, error: String(e) })
+    }
+  }
+  const failedIds = failed.map((f) => f.deliveryId)
+  await runBatch(db, [
+    ...sent.map((s) => setDeliveryMessageId(db, s.deliveryId, s.messageId)),
+    ...(failedIds.length ? [db.delete(deliveries).where(inArray(deliveries.id, failedIds))] : []),
+    recordAction(db, {
+      kind: "send_now",
+      subjectKind: "story",
+      subjectId: String(storyId),
+      detailJson: { scoreAtSend: story.score, sent, failed },
+      by,
+    }),
+  ])
+  if (sent.length === 0) throw new Error(`Telegram did not take the message: ${failed[0]?.error}`)
+  return { sent: sent.length }
+}

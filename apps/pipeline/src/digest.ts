@@ -12,19 +12,18 @@ import {
   mergeStories,
   previousDigestSentAt,
   recordDelivery,
-  type StoryArticle,
   setDeliveryMessageId,
   storyArticles,
   updateGatePassedSince,
 } from "@digest/db"
 import { type Llm, LlmRefusal, SpendCapError, sameStory } from "@digest/llm"
 import {
-  type DigestItem,
   feedbackKeyboard,
   parseChatIds,
   renderDigestHeader,
   renderDigestItem,
   renderEmptyDigest,
+  storyItem,
 } from "@digest/telegram"
 import { Api } from "grammy"
 import { llmFor } from "./llm.ts"
@@ -48,30 +47,8 @@ type Candidate = {
 
 const SEND = { retries: { limit: 5, delay: "30 seconds", backoff: "exponential" }, timeout: "1 minute" } as const
 const HOUR = 3_600_000
-const TIER_RANK: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 }
 
 const log = (event: string, data: Record<string, unknown>) => console.log(JSON.stringify({ event, ...data }))
-
-/** Links chosen by code: origins only, authoritative first, one per domain, at most three. */
-const pickLinks = (list: StoryArticle[]) => {
-  const seen = new Set<string>()
-  return [...list]
-    .filter((a) => a.originId === null)
-    .sort(
-      (a, b) =>
-        Number(b.authoritative) - Number(a.authoritative) ||
-        (TIER_RANK[a.tier] ?? 9) - (TIER_RANK[b.tier] ?? 9) ||
-        a.publishedAt - b.publishedAt,
-    )
-    .filter((a) => {
-      if (seen.has(a.domain)) return false
-      seen.add(a.domain)
-      return true
-    })
-    .slice(0, DIGEST.maxLinks)
-    .map((a) => ({ url: a.canonicalUrl, label: a.sourceName }))
-}
-
 /** Two stories look like one event when their titles overlap heavily or Haiku says so. */
 const sameEventStories = async (db: ReturnType<typeof getDb>, llm: Llm | null, a: number, b: number) => {
   const [sa, sb] = await Promise.all([getStory(db, a), getStory(db, b)])
@@ -211,17 +188,11 @@ export class Digest extends WorkflowEntrypoint<Env, DigestParams> {
         for (const s of selected) {
           const story = await getStory(db, s.storyId)
           if (!story) continue
-          const list = await storyArticles(db, s.storyId)
-          const item: DigestItem = {
-            topic: story.category,
-            fiRelevance: story.fiRelevance,
-            headline: story.title,
-            summary: story.summary ?? "",
-            origins: story.independentOrigins,
-            links: pickLinks(list),
-            isUpdate: s.isUpdate,
-          }
-          out.push({ ...s, text: renderDigestItem(item), factIds: await activeFactIds(db, s.storyId) })
+          out.push({
+            ...s,
+            text: renderDigestItem(storyItem(story, await storyArticles(db, s.storyId), s.isUpdate)),
+            factIds: await activeFactIds(db, s.storyId),
+          })
         }
         return out
       })

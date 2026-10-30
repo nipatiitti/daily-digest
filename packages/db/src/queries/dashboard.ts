@@ -922,3 +922,64 @@ export const loopHealth = async (db: Db, since: number) => {
   ])
   return { runs, rollups: kinds }
 }
+
+const votes = (vote: "up" | "down") => sql<number>`coalesce(sum(${feedback.vote} = ${vote}), 0)`
+
+/**
+ * Daily digest editions dated in [from, to) (YYYY-MM-DD), newest first: each date with digest or update deliveries,
+ * its count of distinct stories and its votes over every chat.
+ */
+export const digestEditions = (db: Db, from: string, to: string, limit?: number) => {
+  const q = db
+    .select({
+      date: sql<string>`${deliveries.digestDate}`,
+      items: sql<number>`count(distinct ${deliveries.storyId})`,
+      up: votes("up"),
+      down: votes("down"),
+    })
+    .from(deliveries)
+    .leftJoin(feedback, eq(feedback.deliveryId, deliveries.id))
+    .where(
+      and(
+        inArray(deliveries.kind, ["digest", "update"]),
+        gte(deliveries.digestDate, from),
+        lt(deliveries.digestDate, to),
+      ),
+    )
+    .groupBy(deliveries.digestDate)
+    .orderBy(desc(deliveries.digestDate))
+  return limit === undefined ? q : q.limit(limit)
+}
+
+/**
+ * The stories of the digest dated `date` and the alerts sent in [from, to), in send order, each story once per kind
+ * with the stored fields a digest item is rendered from, its score at send and its votes over every chat.
+ */
+export const digestDay = (db: Db, date: string, from: number, to: number) => {
+  const sentAt = sql<number>`min(${deliveries.sentAt})`
+  return db
+    .select({
+      storyId: stories.id,
+      kind: deliveries.kind,
+      sentAt,
+      scoreAtSend: sql<number | null>`max(${deliveries.scoreAtSend})`,
+      up: votes("up"),
+      down: votes("down"),
+      category: stories.category,
+      fiRelevance: stories.fiRelevance,
+      title: stories.title,
+      summary: stories.summary,
+      independentOrigins: stories.independentOrigins,
+    })
+    .from(deliveries)
+    .innerJoin(stories, eq(stories.id, deliveries.storyId))
+    .leftJoin(feedback, eq(feedback.deliveryId, deliveries.id))
+    .where(
+      or(
+        eq(deliveries.digestDate, date),
+        and(eq(deliveries.kind, "alert"), gte(deliveries.sentAt, from), lt(deliveries.sentAt, to)),
+      ),
+    )
+    .groupBy(stories.id, deliveries.kind)
+    .orderBy(sentAt)
+}

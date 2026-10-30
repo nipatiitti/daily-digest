@@ -28,6 +28,9 @@ importers:
       "@digest/llm":
         specifier: workspace:*
         version: link:../../packages/llm
+      "@digest/telegram":
+        specifier: workspace:*
+        version: link:../../packages/telegram
       "@lucide/svelte":
         specifier: 1.64.0
         version: 1.64.0(svelte@5.57.3)
@@ -40,6 +43,9 @@ importers:
       d3-shape:
         specifier: 3.2.0
         version: 3.2.0
+      grammy:
+        specifier: ^1.46.0
+        version: 1.46.0
       jose:
         specifier: 6.2.13
         version: 6.2.13

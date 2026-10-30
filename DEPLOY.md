@@ -64,6 +64,7 @@ secret token. Both skip quietly when the variables aren't set.
    | `digest-ingress`   | `TELEGRAM_WEBHOOK_SECRET` | secret from step 2 |
    | `digest-pipeline`  | `ANTHROPIC_API_KEY`       | Anthropic API key  |
    | `digest-dashboard` | `ANTHROPIC_API_KEY`       | Anthropic API key  |
+   | `digest-dashboard` | `TELEGRAM_BOT_TOKEN`      | bot token          |
 
    The deploy copies them into runtime secrets and registers the webhook, so there's nothing else to set.
    Without `ANTHROPIC_API_KEY` the pipeline still runs: the match step falls back to a plain threshold instead
@@ -88,7 +89,8 @@ secret token. Both skip quietly when the variables aren't set.
 7. Retry the deploys. The ingress log ends with `set-webhook: https://hooks.dd.nipatiitti.fi/telegram`.
 
 8. **Chat ID**: send `/start` to the bot and it replies with the chat ID. **Send it back** (comma-separate
-   several). It goes in `TELEGRAM_CHAT_IDS` in both `wrangler.jsonc` files.
+   several). It goes in `TELEGRAM_CHAT_IDS` in all three `wrangler.jsonc` files. The dashboard's "Send to Telegram
+   now" on a story page sends there, and refuses without its own `TELEGRAM_BOT_TOKEN`.
 
 ## Checking it works
 

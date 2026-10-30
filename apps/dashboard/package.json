@@ -8,17 +8,19 @@
     "prepare": "svelte-kit sync || echo ''",
     "types": "wrangler types --strict-vars false && node -e \"const fs=require('node:fs'),f='worker-configuration.d.ts';fs.writeFileSync(f,fs.readFileSync(f,'utf8').replace(/\\n\\s*mainModule: typeof import\\(.*\\);/,''))\"",
     "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "deploy": "vite build && wrangler deploy && node ../../scripts/sync-secrets.ts ANTHROPIC_API_KEY"
+    "deploy": "vite build && wrangler deploy && node ../../scripts/sync-secrets.ts ANTHROPIC_API_KEY TELEGRAM_BOT_TOKEN"
   },
   "dependencies": {
     "@digest/core": "workspace:*",
     "@digest/db": "workspace:*",
     "@digest/design": "workspace:*",
     "@digest/llm": "workspace:*",
+    "@digest/telegram": "workspace:*",
     "@lucide/svelte": "1.64.0",
     "d3-array": "3.2.4",
     "d3-scale": "4.0.2",
     "d3-shape": "3.2.0",
+    "grammy": "^1.46.0",
     "jose": "6.2.13",
     "zod": "^4.6.7"
   },

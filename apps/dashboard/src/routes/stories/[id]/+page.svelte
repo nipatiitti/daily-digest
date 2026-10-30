@@ -15,6 +15,7 @@ import {
   StreamTag,
   streamSlot,
 } from "#lib/components/index.ts"
+import SendNowButton from "#lib/components/SendNowButton.svelte"
 import { page } from "$app/state"
 import { closeForm, factStatusForm, followForm, mergeForm, requeueForm, storyPage } from "./story.remote.ts"
 
@@ -411,6 +412,7 @@ const noFacts = $derived(p.facts.every((g) => g.rows.length === 0))
           <Button type="submit">Evaluate again</Button>
           {@render issues(requeueForm.fields.allIssues())}
         </form>
+        <SendNowButton storyId={s.id} title={s.title} />
         <form
           {...mergeForm.enhance(confirmed("Merge this story into the one you named? Its articles move there."))}
           class="grid gap-2"

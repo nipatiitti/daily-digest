@@ -34,7 +34,10 @@
     // Claude spend per UTC day on dashboard answers (llm_calls purposes explain, compare, review, ask)
     "DASHBOARD_SPEND_CAP_USD": "2",
     // Same value as apps/pipeline; the spend lamp compares today's spend against it
-    "DAILY_SPEND_CAP_USD": "3.33"
+    "DAILY_SPEND_CAP_USD": "3.33",
+    // Same value as apps/pipeline; "Send to Telegram now" on a story page sends to these chats
+    "TELEGRAM_CHAT_IDS": "-5529066369"
   }
-  // Secret (a Workers Builds build variable, copied in by scripts/sync-secrets.ts, never here): ANTHROPIC_API_KEY
+  // Secrets (Workers Builds build variables, copied in by scripts/sync-secrets.ts, never here):
+  // ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN
 }
