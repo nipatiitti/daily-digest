@@ -9,7 +9,8 @@ import type { RequestHandler } from "./$types"
 const Body = z.object({
   purpose: z.enum(DASHBOARD_LLM_PURPOSES),
   subjectKind: z.enum(ACTION_SUBJECTS),
-  subjectId: z.string().min(1).max(64),
+  /** Canonical digits only, so one subject has one cache key. */
+  subjectId: z.string().regex(/^[1-9]\d{0,15}$/),
 })
 
 const TEXT = { "content-type": "text/plain; charset=utf-8" }
@@ -33,7 +34,8 @@ export const POST: RequestHandler = async ({ request }) => {
   if (!call) return plain(404, `Nothing to answer about ${subjectKind} ${subjectId}.`)
 
   const d = db()
-  const key = { ...body.data, inputHash: await sha256(JSON.stringify([call.model, call.system, call.prompt])) }
+  const input = [call.model, call.system, call.prompt, call.maxTokens, call.effort]
+  const key = { ...body.data, inputHash: await sha256(JSON.stringify(input)) }
   const cached = await cachedAnswer(d, key)
   if (cached) return new Response(cached.text, { headers: { ...TEXT, "x-answer-cached": "1" } })
 
@@ -48,7 +50,10 @@ export const POST: RequestHandler = async ({ request }) => {
   }
   waitUntil(
     answer.done
-      .then(({ text, refs, callId }) => storeAnswer(d, { ...key, text, refsJson: refs, llmCallId: callId }))
+      // A cut-off answer is shown but not stored, so the next click asks again.
+      .then(({ text, refs, callId, stopReason }) =>
+        stopReason === "end_turn" ? storeAnswer(d, { ...key, text, refsJson: refs, llmCallId: callId }) : undefined,
+      )
       .catch((e) => console.error(JSON.stringify({ event: "answer_failed", ...key, error: String(e) }))),
   )
   return new Response(answer.stream.pipeThrough(new TextEncoderStream()), { headers: TEXT })

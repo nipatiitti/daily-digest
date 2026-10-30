@@ -1,14 +1,22 @@
 import { env } from "cloudflare:workers"
 import { LAMPS } from "@digest/core"
-import { lampInputs } from "@digest/db"
+import { dashboardSpendSince, lampInputs } from "@digest/db"
 import { db } from "#lib/server/db.ts"
+import { answerCapUsd } from "#lib/server/llm.ts"
 import { getRequestEvent, query } from "$app/server"
 
 type LampState = "live" | "stale" | "off" | "alert"
 
-/** The header lamps: is fetching producing items, is evaluation keeping up, how much of today's Claude cap is spent. */
+/**
+ * The header lamps: is fetching producing items, is evaluation keeping up, how much of today's pipeline Claude cap
+ * is spent. The spend title also shows the dashboard answers against their own cap.
+ */
 export const lamps = query(async () => {
-  const { minutesSinceNewItem: mins, evalBacklog, spendTodayUsd } = await lampInputs(db(), Date.now())
+  const now = Date.now()
+  const [{ minutesSinceNewItem: mins, evalBacklog, spendTodayUsd }, answers] = await Promise.all([
+    lampInputs(db(), now),
+    dashboardSpendSince(db(), now - (now % 86_400_000)),
+  ])
   const cap = Number(env.DAILY_SPEND_CAP_USD)
   const pct = (spendTodayUsd / cap) * 100
   const fetching: LampState =
@@ -19,7 +27,11 @@ export const lamps = query(async () => {
   return [
     { label: "Fetch", state: fetching, title: mins === null ? "No items yet" : `${mins} min ago` },
     { label: "Eval", state: evaluation, title: `${evalBacklog} queued` },
-    { label: "Spend", state: spend, title: `${spendTodayUsd.toFixed(2)} of ${cap.toFixed(2)} USD` },
+    {
+      label: "Spend",
+      state: spend,
+      title: `${spendTodayUsd.toFixed(2)} of ${cap.toFixed(2)} USD pipeline, ${answers.toFixed(2)} of ${answerCapUsd().toFixed(2)} USD answers`,
+    },
   ]
 })
 

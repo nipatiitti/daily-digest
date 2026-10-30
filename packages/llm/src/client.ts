@@ -129,22 +129,33 @@ export const createLlm = (o: LlmOptions) => {
       messages: [{ role: "user", content: c.prompt }],
       output_config: { effort: c.effort ?? "low" },
     })
+    // The usage snapshot stops at message_start, so a broken-off stream logs its output from the characters sent.
+    let chars = 0
     const done = s.finalMessage().then(
       async (m) => {
         const category = m.stop_reason === "refusal" ? (m.stop_details?.category ?? "unknown") : null
         const callId = await logCall(c, m.usage, category === null ? null : `refusal:${category}`)
         if (category !== null) throw new LlmRefusal(category)
-        return { text: m.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join(""), callId }
+        const out = m.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("")
+        return { text: out, callId, stopReason: m.stop_reason }
       },
       async (e: unknown) => {
         const usage = s.currentMessage?.usage ?? { input_tokens: 0, output_tokens: 0 }
-        await logCall(c, usage, `error:${e instanceof Error ? e.message : String(e)}`.slice(0, 300))
+        const output_tokens = Math.max(usage.output_tokens, Math.ceil(chars / 4))
+        await logCall(
+          c,
+          { ...usage, output_tokens },
+          `error:${e instanceof Error ? e.message : String(e)}`.slice(0, 300),
+        )
         throw e
       },
     )
     const text = new ReadableStream<string>({
       start(ctrl) {
-        s.on("text", (delta) => ctrl.enqueue(delta))
+        s.on("text", (delta) => {
+          chars += delta.length
+          ctrl.enqueue(delta)
+        })
         done.then(
           () => ctrl.close(),
           (e) => ctrl.error(e),

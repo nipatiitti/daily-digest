@@ -252,7 +252,7 @@ export const opsStrip = query(async () => {
     { label: "Evaluations, 24h", value: fmtInt(evals?.n ?? 0), href: "/ops#evals" },
     { label: "Would alert, 24h", value: fmtInt(ops.wouldAlert), href: "/ops?gate=alert&decision=pass#gates" },
     { label: "Stale sources", value: fmtInt(stale.length), href: "/sources" },
-    { label: "Spend today", value: `${spend.toFixed(2)} of ${cap.toFixed(2)} USD`, href: "/ops#spend" },
+    { label: "Pipeline spend today", value: `${spend.toFixed(2)} of ${cap.toFixed(2)} USD`, href: "/ops#spend" },
     {
       label: "Database",
       value: ops.dbBytes === null ? "Not measured" : `${(ops.dbBytes / 1e9).toFixed(2)} GB`,

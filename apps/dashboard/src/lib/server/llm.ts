@@ -72,7 +72,7 @@ export const answerCall = async (
   subjectId: string,
 ): Promise<StreamCall | null> => {
   const id = Number(subjectId)
-  if (purpose !== "explain" || subjectKind !== "story" || !Number.isSafeInteger(id)) return null
+  if (purpose !== "explain" || subjectKind !== "story") return null
   const d = db()
   const [story, detail] = await Promise.all([getStory(d, id), storyDetail(d, id, DASHBOARD.storyPageRows)])
   const b = story && scoreBreakdown(story, detail.bestTier, detail.gates.find((g) => g.gate === "alert")?.at)

@@ -18,9 +18,9 @@ export const streamAnswer = async (llm: Llm, call: StreamCall) => {
   const { stream, done } = await llm.stream(call)
   return {
     stream,
-    done: done.then(({ text, callId }) => {
+    done: done.then(({ text, callId, stopReason }) => {
       const clean = sanitizeUserText(text)
-      return { text: clean, refs: citedRefs(clean), callId }
+      return { text: clean, refs: citedRefs(clean), callId, stopReason }
     }),
   }
 }
