@@ -112,5 +112,20 @@ Done when a walking skeleton runs in production: at 07:00 UTC a "Nothing notable
 3. Pipeline skeleton: all bindings incl. Vectorize, scheduler, fetch consumer writing articles, process consumer embedding with bge-m3 and matching articles to stories (brief section 5: wire-copy collapse, cosine bands, Haiku in the ask band, CVE hard key, same-source penalty), evidence gate, StoryEval stub, Digest sending the empty digest, minimal `telegram`. Done 27 Oct; needs the Vectorize index and `process-q` created (DEPLOY.md).
 4. Ingress: grammY webhook, secret check, `update_id` dedupe, callback answers, feedback writes, `set-webhook`. Done.
 5. Real pipeline stages. Done 27 Oct: StoryEval (full text via `AI.toMarkdown` for the two leading origins, Sonnet extraction and rubric, EPSS and KEV enrichment into `vulns`, facts with Haiku novelty labels, score, alert gate in shadow mode, update gate), Digest reading stories (candidates since the previous digest, slotting in code, one message per item with badge, code-chosen links and votes, re-delivery only after the update gate passes), maintenance cron at 03:30 UTC (close stories quiet for 7 days, `db_stats`, stale sources in the log). 28 Oct after the first real digest: items cut to tag, headline, one sentence and a comma-separated source line (no "why it matters" shown, no middle dots), the extraction prompt limits `what_happened` to one sentence of 25 words, and the Digest workflow checks its top candidates pairwise for the same event (title overlap, else Haiku) and merges the loser into the winner before slotting, because the matcher kept a Finnish and an English version of one event apart. `MATCH.newStoryCosine` dropped to 0.65 so such pairs reach the Haiku ask at process time too. Slots since 28 Oct: 2 Finland (relevance 2, floor 45, filled first), 3 tech/security, 2 world. Not yet: nightly story merge pass, Following section, Opus edit, quiet hours and alert sending (shadow only), R2 full-text storage (fetched at eval time, not stored).
-6. Dashboard shell: SvelteKit, Access JWT check in `hooks.server.ts`, digest archive, gate log. Pushed back behind the digest on 27 Oct. Digest archive done 30 Oct: `/digest` lists editions (UTC dates with digest or update deliveries) with story and vote counts, `/digest/<date>` shows each item re-rendered through `renderDigestItem` from the stored story with its score at send and votes, plus that day's alerts. "Send to Telegram now" on a story page sends it to every chat as an `alert` delivery with the vote row and writes a `send_now` audit row.
-7. Calibration on two weeks of shadow gate logs, then alerts for real. Later: velocity signals, EUVD, HF trending and HTML-diff parsers, Kagi recall, Follow, Opus edit.
+6. Dashboard shell: SvelteKit on adapter-cloudflare, Access JWT check in `hooks.server.ts`, design tokens, server-rendered SVG charts. Done 29 Oct.
+7. Front page: range control, readouts, stream chart with projection, top stories, ops strip. Done 29 Oct.
+8. Table browser over every Drizzle table with filters, FTS, keyset paging, CSV and audited cell edits. Done 29 Oct.
+9. Story, article and entity pages with audited actions. Done 29 Oct.
+10. Hourly loop: rollups per hour and subject, entities folded from extraction, themes shown as signals, momentum and Holt forecast. Done 29 Oct.
+11. Hourly brief in the hero and at `/briefs`, with an explanation per moving signal. Done 29 Oct.
+12. On-demand Claude answers at `POST /api/answer` under their own `DASHBOARD_SPEND_CAP_USD`, first "Explain the score". Done 29 Oct.
+13. Sources page with audited enable, disable, poll now and reset. Done 29 Oct.
+14. Ops page: spend by day and purpose, gate log, StoryEval activity, database size, calibration, loop health. Done 29 Oct.
+15. Digest archive at `/digest` with each edition as Telegram rendered it, and "Send to Telegram now" on the story page. Done 30 Oct.
+16. Attention source ingestion into `signals`. The tier D feeds stay disabled until then.
+17. Hourly story merge pass.
+18. Follow.
+19. Alert calibration on the shadow gate logs after the two week shadow period, then alerts for real.
+20. Telegram links to the site, if Niilo wants them.
+
+Later: velocity signals, EUVD, HF trending and HTML-diff parsers, Kagi recall, Opus edit.
