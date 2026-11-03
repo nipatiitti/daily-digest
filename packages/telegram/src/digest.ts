@@ -1,4 +1,4 @@
-import { DIGEST, EDITION_LABEL, parseEditionKey, sanitizeUserText } from "@digest/core"
+import { aboutFinland, DIGEST, EDITION_LABEL, parseEditionKey, sanitizeUserText } from "@digest/core"
 import { escapeHtml } from "./html.ts"
 
 const HELSINKI_DATE = new Intl.DateTimeFormat("en-GB", {
@@ -28,7 +28,7 @@ export type ItemLink = { url: string; label: string }
 
 export type DigestItem = {
   topic: "security" | "tech" | "world" | "fi"
-  fiRelevance: number
+  finland: boolean
   headline: string
   summary: string
   /** Independent origins, counted by code from the database. */
@@ -73,16 +73,18 @@ export const pickLinks = (list: LinkArticle[]): ItemLink[] => {
 /** The story fields a digest item is built from. */
 export type ItemStory = {
   category: DigestItem["topic"]
-  fiRelevance: number
   title: string
   summary: string | null
   independentOrigins: number
+  /** With the extraction's entities (storyEntities), the Finland tag reads them besides the title. */
+  primaryEntity?: string | null
+  entities?: string[]
 }
 
 /** A stored story as one digest item, links picked from its articles. */
 export const storyItem = (s: ItemStory, list: LinkArticle[], isUpdate: boolean): DigestItem => ({
   topic: s.category,
-  fiRelevance: s.fiRelevance,
+  finland: aboutFinland([s.title, s.primaryEntity, ...(s.entities ?? [])]),
   headline: s.title,
   summary: s.summary ?? "",
   origins: s.independentOrigins,
@@ -111,7 +113,7 @@ const sourcesLine = (i: DigestItem) => {
 
 /** One Telegram message per item: tag and headline, one sentence, sources. */
 export const renderDigestItem = (i: DigestItem) => {
-  const tag = i.fiRelevance === 2 && i.topic !== "security" ? "Finland" : TAG[i.topic]
+  const tag = i.finland && i.topic !== "security" ? "Finland" : TAG[i.topic]
   const lines = [`<b>${i.isUpdate ? "Update: " : ""}${tag}: ${clean(i.headline)}</b>`]
   const summary = firstSentence(sanitizeUserText(i.summary))
   if (summary) lines.push(escapeHtml(summary))

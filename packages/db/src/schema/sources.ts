@@ -9,6 +9,10 @@ export type SourceKind = (typeof SOURCE_KINDS)[number]
 export const TIERS = ["A", "B", "C", "D"] as const
 export type Tier = (typeof TIERS)[number]
 
+/** What the outlet is, for ranking: advisory feeds reach the digest only through profile relevance. */
+export const SOURCE_ROLES = ["news", "official", "advisory", "blog", "aggregator"] as const
+export type SourceRole = (typeof SOURCE_ROLES)[number]
+
 export const PARSERS = ["kev", "euvd", "hf_trending", "hn_front_page", "bsky_trending", "html_diff"] as const
 export type Parser = (typeof PARSERS)[number]
 
@@ -39,6 +43,9 @@ export const sources = sqliteTable(
     tier: text({ enum: TIERS }).notNull(),
     category: text({ enum: CATEGORIES }).notNull(),
     lang: text().notNull().default("en"),
+    role: text({ enum: SOURCE_ROLES }).notNull().default("news"),
+    /** ISO 3166-1 alpha-2 code of the outlet's home, "EU" for EU bodies; null for an international outlet. */
+    country: text(),
     authoritative: flag(),
     pollSeconds: integer().notNull(),
     staleAfterDays: integer().notNull().default(3),

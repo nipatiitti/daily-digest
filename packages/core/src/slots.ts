@@ -1,25 +1,25 @@
 import { DIGEST } from "./config.ts"
-import { nordicBoost } from "./scoring.ts"
 
 export type SlotCandidate = {
   storyId: number
   topic: "security" | "tech" | "world"
   score: number
-  fiRelevance: number
+  /** aboutFinland over the story's title and extracted entities. */
+  finland: boolean
   primaryEntity: string | null
   /** Source of the story's leading article; at most two items per source. */
   mainSourceId: number
 }
 
+const rank = (c: SlotCandidate) => c.score + (c.finland ? DIGEST.finlandBoost : 0)
+
 /**
- * Greedy fill within the caps: Finnish stories (relevance 2) take the Finland slots first with the
- * lower floor, and overflow into their topic group; then 3 tech/security and 2 world.
- * At most one story per primary entity and two per source. Never pads.
+ * Greedy fill within the caps: Finland stories take the Finland slots first with the lower floor, and
+ * overflow into their topic group; then 3 tech/security and 2 world.
+ * At most one story per primary entity and two per source. Never pads. Picks come back in rank order.
  */
 export const fillSlots = <T extends SlotCandidate>(candidates: T[]): T[] => {
-  const ranked = [...candidates].sort(
-    (a, b) => b.score + nordicBoost(b.fiRelevance) - (a.score + nordicBoost(a.fiRelevance)),
-  )
+  const ranked = [...candidates].sort((a, b) => rank(b) - rank(a))
   const picked: T[] = []
   const entities = new Set<string>()
   const perSource = new Map<number, number>()
@@ -39,7 +39,7 @@ export const fillSlots = <T extends SlotCandidate>(candidates: T[]): T[] => {
 
   for (const c of ranked) {
     if (picked.length >= DIGEST.maxItems) break
-    if (c.fiRelevance === 2 && c.score >= DIGEST.fiFloor && fi < DIGEST.slots.fi) {
+    if (c.finland && c.score >= DIGEST.fiFloor && fi < DIGEST.slots.fi) {
       if (admit(c)) fi++
       continue
     }

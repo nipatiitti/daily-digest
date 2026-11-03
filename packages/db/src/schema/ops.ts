@@ -1,6 +1,7 @@
 import { index, integer, real, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
 import { articles } from "./articles.ts"
 import { nowMs } from "./common.ts"
+import { events } from "./events.ts"
 import { stories } from "./stories.ts"
 
 /** How the process stage placed an article; the `-fallback` pair is the ask band without a usable LLM. */
@@ -67,6 +68,15 @@ export const LLM_PURPOSES = [
   "theme",
   "brief",
   "theme_explain",
+  "facets",
+  "cluster",
+  "consolidate",
+  "thread",
+  "relevance",
+  "edition_cut",
+  "edition_copy",
+  "reactions",
+  "movers",
   ...DASHBOARD_LLM_PURPOSES,
 ] as const
 export type LlmPurpose = (typeof LLM_PURPOSES)[number]
@@ -78,6 +88,7 @@ export const llmCalls = sqliteTable(
     purpose: text({ enum: LLM_PURPOSES }).notNull(),
     model: text().notNull(),
     storyId: integer().references(() => stories.id),
+    eventId: integer().references(() => events.id),
     inputTokens: integer().notNull(),
     outputTokens: integer().notNull(),
     cachedTokens: integer().notNull().default(0),
@@ -145,10 +156,25 @@ export const ACTION_KINDS = [
   "theme_detach",
   "entity_merge",
   "entity_rename",
+  "profile_edit",
+  "proposal_accept",
+  "proposal_reject",
 ] as const
 export type ActionKind = (typeof ACTION_KINDS)[number]
 
-export const ACTION_SUBJECTS = ["story", "article", "source", "theme", "entity", "fact", "cell"] as const
+export const ACTION_SUBJECTS = [
+  "story",
+  "article",
+  "source",
+  "theme",
+  "entity",
+  "fact",
+  "cell",
+  "event",
+  "thread",
+  "country",
+  "profile",
+] as const
 export type ActionSubject = (typeof ACTION_SUBJECTS)[number]
 
 /** Audit log: one row per dashboard write, with the Access email of who made it. Never deleted. */

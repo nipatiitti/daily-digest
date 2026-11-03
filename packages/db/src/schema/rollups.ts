@@ -1,6 +1,7 @@
 import { index, integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
-export const ROLLUP_KINDS = ["desk", "stream", "source", "story", "entity", "theme"] as const
+/** v2 writes source, entity, thread and country; the rest are v1 rows left until the drop migration. */
+export const ROLLUP_KINDS = ["source", "entity", "thread", "country", "desk", "stream", "story", "theme"] as const
 export type RollupKind = (typeof ROLLUP_KINDS)[number]
 
 /** Counts per hour and subject, so a 90 day chart reads a few thousand rows instead of every article. */

@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 21
+export const CONFIG_VERSION = 22
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -81,8 +81,6 @@ export const SCORING = {
   /** Bonus per independent origin seen in the last 6 hours, capped. */
   velocityBonusPerOrigin: 2,
   velocityBonusMax: 10,
-  /** Applied to digest ranking only: fi_relevance 2 and 1. */
-  nordicBoost: { 2: 8, 1: 4 } as Record<number, number>,
   /** Score bands; crossing one is a material update. */
   tierBounds: [45, 60, 75, 90],
   /** EPSS at or above this counts toward security majorness. */
@@ -112,8 +110,14 @@ export const ALERT = {
 export const DIGEST = {
   floor: 60,
   fiFloor: 45,
-  /** Security and tech share one group. Finland means fi_nordic_eu_relevance 2, any topic. */
+  /** Added to a Finland story's score for ranking only. */
+  finlandBoost: 8,
+  /** Security and tech share one group. Finland means the title or an extracted entity names a place in Finland. */
   slots: { techSecurity: 3, world: 2, fi: 2 },
+  /** A story whose origins all come from advisory sources needs this score. */
+  advisoryFloor: 80,
+  /** Skip a story sharing a theme with any story delivered in this many latest sent editions. */
+  themeCooldownEditions: 2,
   maxItems: 7,
   maxPerEntity: 1,
   maxPerSource: 2,

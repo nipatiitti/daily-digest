@@ -1,16 +1,86 @@
-import { and, desc, eq, gt, gte, inArray, isNotNull, sql } from "drizzle-orm"
-import type { Db } from "../client.ts"
-import { articles, deliveries, digests, facts, stories } from "../schema/index.ts"
+import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, sql } from "drizzle-orm"
+import { type Db, MAX_PARAMS } from "../client.ts"
+import { articles, deliveries, digests, facts, sources, stories, storyThemes } from "../schema/index.ts"
+
+/** Runs `q` over slices of `ids` small enough to leave the query's other bound parameters room under D1's limit. */
+const inChunks = async <T>(ids: number[], q: (chunk: number[]) => PromiseLike<T[]>) => {
+  const size = MAX_PARAMS - 10
+  const runs: PromiseLike<T[]>[] = []
+  for (let i = 0; i < ids.length; i += size) runs.push(q(ids.slice(i, i + size)))
+  return (await Promise.all(runs)).flat()
+}
+
+const sent = and(eq(digests.status, "sent"), isNotNull(digests.sentAt))
 
 /** When the previous edition of either kind went out; null before the first one. */
 export const previousDigestSentAt = async (db: Db) => {
   const [row] = await db
     .select({ sentAt: digests.sentAt })
     .from(digests)
-    .where(and(eq(digests.status, "sent"), isNotNull(digests.sentAt)))
+    .where(sent)
     .orderBy(desc(digests.sentAt))
     .limit(1)
   return row?.sentAt ?? null
+}
+
+/**
+ * The stories among `storyIds` that share a theme with a story delivered in the latest `editions` sent editions.
+ * Links detached by hand keep confidence 0 and do not count.
+ */
+export const themeCooldownStories = async (db: Db, storyIds: number[], editions: number) => {
+  const recent = db
+    .select({ key: digests.digestDate })
+    .from(digests)
+    .where(sent)
+    .orderBy(desc(digests.sentAt))
+    .limit(editions)
+  const delivered = db
+    .select({ themeId: storyThemes.themeId })
+    .from(deliveries)
+    .innerJoin(storyThemes, eq(storyThemes.storyId, deliveries.storyId))
+    .where(and(inArray(deliveries.digestDate, recent), gt(storyThemes.confidence, 0)))
+  const rows = await inChunks(storyIds, (chunk) =>
+    db
+      .selectDistinct({ storyId: storyThemes.storyId })
+      .from(storyThemes)
+      .where(
+        and(
+          inArray(storyThemes.storyId, chunk),
+          gt(storyThemes.confidence, 0),
+          inArray(storyThemes.themeId, delivered),
+        ),
+      ),
+  )
+  return new Set(rows.map((r) => r.storyId))
+}
+
+/** The stories among `storyIds` whose origin articles all come from advisory sources. */
+export const advisoryOnlyStories = async (db: Db, storyIds: number[]) => {
+  const rows = await inChunks(storyIds, (chunk) =>
+    db
+      .select({ storyId: articles.storyId })
+      .from(articles)
+      .innerJoin(sources, eq(sources.id, articles.sourceId))
+      .where(and(inArray(articles.storyId, chunk), isNull(articles.originId)))
+      .groupBy(articles.storyId)
+      .having(sql`min(${sources.role} = 'advisory') = 1`),
+  )
+  return new Set(rows.flatMap((r) => (r.storyId === null ? [] : [r.storyId])))
+}
+
+/** The extraction's entity names per story, as flagStoryArticles wrote them on its articles. */
+export const storyEntityNames = async (db: Db, storyIds: number[]) => {
+  const rows = await inChunks(storyIds, (chunk) =>
+    db
+      .selectDistinct({ storyId: articles.storyId, entities: articles.entitiesJson })
+      .from(articles)
+      .where(and(inArray(articles.storyId, chunk), isNotNull(articles.entitiesJson))),
+  )
+  const out = new Map<number, string[]>()
+  for (const r of rows) {
+    if (r.storyId !== null) out.set(r.storyId, [...(out.get(r.storyId) ?? []), ...(r.entities ?? [])])
+  }
+  return out
 }
 
 /** Scored, active stories that changed since `since`. */

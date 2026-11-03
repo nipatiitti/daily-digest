@@ -1,8 +1,8 @@
 import { type AnySQLiteColumn, index, integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { stories } from "./stories.ts"
 
-/** Place and person are only set by hand for now; the hourly fold writes cve, product or org. */
-export const ENTITY_KINDS = ["org", "product", "place", "person", "cve", "other"] as const
+/** Ingest writes the kind from article facets (FACET_ENTITY_KINDS); cve and other are left from v1. */
+export const ENTITY_KINDS = ["org", "product", "place", "person", "topic", "cve", "other"] as const
 export type EntityKind = (typeof ENTITY_KINDS)[number]
 
 /** Organisations, products and CVEs named by story extractions, one row per normalised key. */
@@ -20,6 +20,8 @@ export const entities = sqliteTable(
     lastSeen: integer().notNull(),
     /** Unmerged stories linked to it. */
     storyCount: integer().notNull().default(0),
+    /** Unmerged events linked to it. */
+    eventCount: integer().notNull().default(0),
     /** Written hourly from entity rollups, like the story columns. */
     momentum24h: real("momentum_24h"),
     momentum7d: real("momentum_7d"),

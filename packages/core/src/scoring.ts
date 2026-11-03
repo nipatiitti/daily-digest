@@ -41,9 +41,6 @@ export const storyScore = (s: ScoreInput) => {
 
 export const scoreTier = (score: number) => SCORING.tierBounds.filter((b) => score >= b).length
 
-/** Digest ranking only. */
-export const nordicBoost = (fiRelevance: number) => SCORING.nordicBoost[fiRelevance] ?? 0
-
 export type Majorness = {
   breadth: number
   kev: boolean
