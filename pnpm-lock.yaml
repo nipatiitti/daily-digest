@@ -34,6 +34,9 @@ importers:
       "@lucide/svelte":
         specifier: 1.64.0
         version: 1.64.0(svelte@5.57.3)
+      "@opentelemetry/api":
+        specifier: 1.10.0
+        version: 1.10.0
       d3-array:
         specifier: 3.2.4
         version: 3.2.4
