@@ -1,24 +1,29 @@
 import type { Db } from "@digest/db"
-import { briefStep } from "./hourly/brief.ts"
-import { entitiesStep } from "./hourly/entities.ts"
+import { alertsStep } from "./alerts.ts"
+import { consolidateStep } from "./hourly/consolidate.ts"
 import { mergeStep } from "./hourly/merge.ts"
 import { momentumStep } from "./hourly/momentum.ts"
+import { moversStep } from "./hourly/movers.ts"
 import { rollupStep } from "./hourly/rollups.ts"
-import { themesStep } from "./hourly/themes.ts"
+import { threadsStep } from "./hourly/threads.ts"
 import type { llmFor } from "./llm.ts"
+import { relevanceStep } from "./relevance.ts"
 
-type Step = { name: string; run: () => Promise<Record<string, number>> }
+type Step = { name: string; run: () => Promise<Record<string, number | undefined>> }
 
 /** Hourly loop at minute 0. Steps run in order; one failing is logged and the rest still run. */
 export const runHourly = async (env: Env, db: Db, llm: ReturnType<typeof llmFor>, now: number) => {
   const steps: Step[] = [
-    { name: "rollups", run: () => rollupStep(db, now) },
-    // Before entities and themes, which read story ids.
+    // v1 stories, for the v1 digest until the switch.
     { name: "merge", run: () => mergeStep(env, db, llm, now) },
-    { name: "entities", run: () => entitiesStep(db, now) },
-    { name: "themes", run: () => themesStep(env, db, llm, now) },
+    // Fold duplicate events before threads and rollups read event ids.
+    { name: "consolidate", run: () => consolidateStep({ GISTS: env.GISTS }, db, llm, now) },
+    { name: "threads", run: () => threadsStep(db, llm, now) },
+    { name: "rollups", run: () => rollupStep(db, now) },
     { name: "momentum", run: () => momentumStep(db, now) },
-    { name: "brief", run: () => briefStep(db, llm, now) },
+    { name: "relevance", run: () => relevanceStep(db, llm, now) },
+    { name: "movers", run: () => moversStep(db, llm, now) },
+    { name: "alerts", run: () => alertsStep(env, db, llm, now) },
   ]
   for (const step of steps) {
     const started = Date.now()

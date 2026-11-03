@@ -2,6 +2,7 @@
 // re-running it never resets poll times, ETags or failure counts. `enabled` is set on
 // insert only: after that the dashboard owns it.
 //   node seed/to-sql.ts > seed.sql && wrangler d1 execute digest --remote --file seed.sql
+import { PROFILE } from "./profile.ts"
 import { SOURCES, type SourceSeed } from "./sources.ts"
 
 const COLUMNS: [keyof SourceSeed, string][] = [
@@ -53,5 +54,21 @@ const lines = SOURCES.map((s) => {
   const values = COLUMNS.map(([k]) => literal(row[k])).join(", ")
   return `INSERT INTO sources (${names.join(", ")}) VALUES (${values}) ON CONFLICT (slug) DO UPDATE SET ${updates};`
 })
+
+// The profile's first version, only while there is none: after that the dashboard's profile page owns it.
+const p = PROFILE
+lines.push(
+  `INSERT INTO profile_versions (version, text, topics_json, follows_json, regions_json, mutes_json, note, by) SELECT 1, ${[
+    p.text,
+    p.topics,
+    p.follows,
+    p.regions,
+    p.mutes,
+    "From the first 48 votes",
+    "seed",
+  ]
+    .map(literal)
+    .join(", ")} WHERE NOT EXISTS (SELECT 1 FROM profile_versions);`,
+)
 
 process.stdout.write(`${lines.join("\n")}\n`)

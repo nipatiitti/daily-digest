@@ -1,4 +1,5 @@
 export const HOUR_MS = 3_600_000
+export const DAY_MS = 24 * HOUR_MS
 
 /** Start of the UTC hour holding `ms`. */
 export const hourBucket = (ms: number) => Math.floor(ms / HOUR_MS) * HOUR_MS

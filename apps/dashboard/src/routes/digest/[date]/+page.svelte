@@ -1,6 +1,6 @@
 <script lang="ts">
-import { EDITION_LABEL, parseEditionKey } from "@digest/core"
-import { fmtInt, fmtTime, padId } from "#lib/components/index.ts"
+import { EDITION_LABEL, parseEditionKey, sanitizeUserText } from "@digest/core"
+import { fmtInt, fmtTime } from "#lib/components/format.ts"
 import { page } from "$app/state"
 import { edition } from "../digest.remote.ts"
 
@@ -8,18 +8,19 @@ import { edition } from "../digest.remote.ts"
 const key = $derived(page.params.date ?? "")
 const parsed = $derived(parseEditionKey(key))
 const title = $derived(parsed ? `${parsed.date} ${EDITION_LABEL[parsed.edition]}` : key)
-const score = (n: number | null) => (n === null ? "none" : n.toFixed(1))
+const MODES: Record<string, string> = { shadow: "Shadow", replay: "Replay" }
+const card = "grid gap-2 rounded-lg border border-line bg-surface p-4 shadow-sm"
 </script>
 
 <svelte:head>
   <title>Digest {title}</title>
 </svelte:head>
 
-{#snippet meta(r: { storyId: number; sentAt: number; scoreAtSend: number | null; up: number; down: number })}
+{#snippet meta(r: { eventId: number | null; sentAt: number; scoreAtSend: number | null; up: number; down: number })}
   <p class="dd-body-sm flex flex-wrap gap-x-6 gap-y-1 text-ink-muted">
-    <a href="/stories/{r.storyId}" class="dd-tick">{padId("STY", r.storyId)}</a>
+    {#if r.eventId !== null}<a href="/events/{r.eventId}" class="dd-tick hover:underline">EVT-{r.eventId}</a>{/if}
     <span class="dd-tick whitespace-nowrap">{fmtTime(r.sentAt)}</span>
-    <span>Score at send {score(r.scoreAtSend)}</span>
+    {#if r.scoreAtSend !== null}<span>Score at send {r.scoreAtSend.toFixed(1)}</span>{/if}
     <span>{fmtInt(r.up)} up, {fmtInt(r.down)} down</span>
   </p>
 {/snippet}
@@ -33,24 +34,53 @@ const score = (n: number | null) => (n === null ? "none" : n.toFixed(1))
   <svelte:boundary>
     {@const e = await edition(key)}
     <!--
-      The HTML is renderDigestItem's own, as Telegram shows it: every text is escaped there, and each link is a stored
-      canonical http(s) URL, which the URL parser serializes without quotes.
+      The HTML is renderDigestItem's own, as Telegram shows it, rendered live for v1 stories and stored for shadow items:
+      every text is escaped there, and each link is a stored canonical http(s) URL, which the URL parser serializes
+      without quotes.
     -->
-    {#if e.header}
-      <section class="grid max-w-prose gap-4">
-        <p class="dd-body whitespace-pre-line">{@html e.header}</p>
-        <ol class="grid gap-4">
-          {#each e.items as r (r.storyId)}
-            <li class="grid gap-2 rounded-lg border border-line bg-surface p-4 shadow-sm">
-              <p class="dd-body whitespace-pre-line [&_a]:underline">{@html r.html}</p>
-              {@render meta(r)}
-            </li>
-          {/each}
-        </ol>
+    <div class="grid gap-8 lg:auto-cols-fr lg:grid-flow-col">
+      <section class="grid content-start gap-4">
+        <h2 class="dd-label">Sent</h2>
+        {#if e.header}
+          <p class="dd-body whitespace-pre-line">{@html e.header}</p>
+          <ol class="grid gap-4">
+            {#each e.stories as r (r.storyId)}
+              <li class={card}>
+                <p class="dd-body whitespace-pre-line [&_a]:underline">{@html r.html}</p>
+                {@render meta({ ...r, eventId: null })}
+              </li>
+            {/each}
+            {#each e.events as r (r.eventId)}
+              <li class={card}>
+                <p class="dd-body font-semibold">{r.kind === "update" ? "Update: " : ""}{sanitizeUserText(r.headline)}</p>
+                <p class="dd-body">{sanitizeUserText(r.summary)}</p>
+                {#if r.why}<p class="dd-body italic">{sanitizeUserText(r.why)}</p>{/if}
+                {@render meta({ ...r, scoreAtSend: null })}
+              </li>
+            {/each}
+          </ol>
+        {:else}
+          <p class="dd-body text-ink-muted">Nothing went out in this edition.</p>
+        {/if}
       </section>
-    {:else}
-      <p class="dd-body text-ink-muted">No digest stories went out in this edition.</p>
-    {/if}
+      {#each e.shadow as m (m.mode)}
+        <section class="grid content-start gap-4">
+          <h2 class="dd-label">{MODES[m.mode]}, as of {fmtTime(m.items[0]?.asOf ?? 0)}</h2>
+          <ol class="grid gap-4">
+            {#each m.items as r (r.rank)}
+              <li class={card}>
+                <p class="dd-body whitespace-pre-line [&_a]:underline">{@html r.text}</p>
+                <p class="dd-body-sm flex flex-wrap gap-x-6 gap-y-1 text-ink-muted">
+                  <span class="dd-tick">{r.rank}</span>
+                  <a href="/events/{r.eventId}" class="dd-tick hover:underline">EVT-{r.eventId}</a>
+                  <span>Relevance {r.relevance}, score {r.score.toFixed(2)}</span>
+                </p>
+              </li>
+            {/each}
+          </ol>
+        </section>
+      {/each}
+    </div>
     <section class="grid max-w-prose gap-4">
       <h2 class="dd-label">Alerts sent this day</h2>
       {#if e.alerts === null}
@@ -59,9 +89,9 @@ const score = (n: number | null) => (n === null ? "none" : n.toFixed(1))
         </p>
       {:else if e.alerts.length}
         <ul class="grid divide-y divide-line">
-          {#each e.alerts as r (r.storyId)}
+          {#each e.alerts as r (r.key)}
             <li class="grid gap-1 py-2">
-              <p class="dd-body-sm"><span class="font-semibold">Alert:</span> {r.title}</p>
+              <p class="dd-body-sm"><span class="font-semibold">Alert:</span> {sanitizeUserText(r.headline)}</p>
               {@render meta(r)}
             </li>
           {/each}

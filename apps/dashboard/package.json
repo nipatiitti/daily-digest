@@ -8,7 +8,7 @@
     "prepare": "svelte-kit sync || echo ''",
     "types": "wrangler types --strict-vars false && node -e \"const fs=require('node:fs'),f='worker-configuration.d.ts';fs.writeFileSync(f,fs.readFileSync(f,'utf8').replace(/\\n\\s*mainModule: typeof import\\(.*\\);/,''))\"",
     "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "deploy": "vite build && wrangler deploy && node ../../scripts/sync-secrets.ts ANTHROPIC_API_KEY TELEGRAM_BOT_TOKEN"
+    "deploy": "vite build && wrangler deploy && node ../../scripts/sync-secrets.ts ANTHROPIC_API_KEY"
   },
   "dependencies": {
     "@digest/core": "workspace:*",
@@ -20,7 +20,6 @@
     "d3-array": "3.2.4",
     "d3-scale": "4.0.2",
     "d3-shape": "3.2.0",
-    "grammy": "^1.46.0",
     "jose": "6.2.13",
     "zod": "^4.6.7"
   },

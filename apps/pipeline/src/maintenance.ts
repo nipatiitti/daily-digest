@@ -1,5 +1,6 @@
 import { MAINTENANCE } from "@digest/core"
 import {
+  closeQuietEvents,
   closeQuietStories,
   type Db,
   databaseSize,
@@ -9,13 +10,24 @@ import {
   unassignedArticleCount,
   unassignedRecentArticles,
 } from "@digest/db"
+import type { llmFor } from "./llm.ts"
 import type { ProcessMessage } from "./process.ts"
+import { reactionsStep } from "./reactions.ts"
 
 const DAY = 86_400_000
 
-/** Nightly: close quiet stories, requeue recent unassigned articles, record size and row counts, name stale sources. */
-export const runMaintenance = async (db: Db, processQueue: Queue<ProcessMessage>, now: number) => {
+/**
+ * Nightly: close quiet stories and events, requeue recent unassigned articles, record size and row counts, name stale
+ * sources, then turn the week's votes into profile proposals.
+ */
+export const runMaintenance = async (
+  db: Db,
+  llm: ReturnType<typeof llmFor>,
+  processQueue: Queue<ProcessMessage>,
+  now: number,
+) => {
   const closed = await closeQuietStories(db, now - MAINTENANCE.closeStoryAfterDays * DAY)
+  const closedEvents = await closeQuietEvents(db, now - MAINTENANCE.closeStoryAfterDays * DAY)
   const requeue = await unassignedRecentArticles(
     db,
     now - MAINTENANCE.requeueWindowDays * DAY,
@@ -36,6 +48,7 @@ export const runMaintenance = async (db: Db, processQueue: Queue<ProcessMessage>
     JSON.stringify({
       event: "maintenance",
       closedStories: closed.length,
+      closedEvents,
       requeuedArticles: requeue.length,
       sizeBytes,
       sizeWarning: warn.length > 0 ? `over ${warn[warn.length - 1]} bytes` : null,
@@ -44,4 +57,9 @@ export const runMaintenance = async (db: Db, processQueue: Queue<ProcessMessage>
       rows,
     }),
   )
+  try {
+    console.log(JSON.stringify({ event: "reactions", ...(await reactionsStep(db, llm, now)) }))
+  } catch (e) {
+    console.error(JSON.stringify({ event: "reactions_failed", error: String(e) }))
+  }
 }

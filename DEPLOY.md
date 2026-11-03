@@ -34,6 +34,11 @@ secret token. Both skip quietly when the variables aren't set.
    npx wrangler vectorize create-metadata-index digest-articles --property-name=published_at --type=number
    npx wrangler vectorize create-metadata-index digest-articles --property-name=category --type=string
    npx wrangler vectorize create-metadata-index digest-articles --property-name=source_id --type=number
+   # v2 (created 3 Nov 2026)
+   npx wrangler queues create facet-q
+   npx wrangler queues create facet-dlq
+   npx wrangler vectorize create digest-gists --dimensions=1024 --metric=cosine
+   npx wrangler vectorize create-metadata-index digest-gists --property-name=published_at --type=number
    ```
 
    The deploy never creates resources; `wrangler deploy` fails on a binding whose queue or index is missing.
@@ -64,11 +69,13 @@ secret token. Both skip quietly when the variables aren't set.
    | `digest-ingress`   | `TELEGRAM_WEBHOOK_SECRET` | secret from step 2 |
    | `digest-pipeline`  | `ANTHROPIC_API_KEY`       | Anthropic API key  |
    | `digest-dashboard` | `ANTHROPIC_API_KEY`       | Anthropic API key  |
-   | `digest-dashboard` | `TELEGRAM_BOT_TOKEN`      | bot token          |
 
    The deploy copies them into runtime secrets and registers the webhook, so there's nothing else to set.
-   Without `ANTHROPIC_API_KEY` the pipeline still runs: the match step falls back to a plain threshold instead
-   of asking Haiku, and nothing is extracted. `DAILY_SPEND_CAP_USD` in `apps/pipeline/wrangler.jsonc` (3.33) caps Claude spend per UTC day; the hourly themes step (Haiku per newly extracted story, Sonnet per new theme) counts against it and skips once the day's spend passes the `EVAL.spendSoftCap` share of it. `ANTHROPIC_BASE_URL` can be added as a var later to route through AI Gateway.
+   Without `ANTHROPIC_API_KEY` the pipeline still runs: ingest writes facets from code and clusters by threshold
+   alone, and nothing is scored, threaded or extracted. `DAILY_SPEND_CAP_USD` in `apps/pipeline/wrangler.jsonc` caps
+   Claude spend per UTC day: 8 while v1 and v2 run side by side and v2 backfills, 3.33 again after the switch. Ingest
+   facets may run to `FACETS.capMultiplier` times it; the hourly threads, relevance and movers steps skip once the
+   day's spend passes the `EVAL.spendSoftCap` share of it. `ANTHROPIC_BASE_URL` can be added as a var later to route through AI Gateway.
 
 6. **Cloudflare Access for the dashboard** (Zero Trust → Access → Applications → Add → Self-hosted):
    - Application domain `dd.nipatiitti.fi`, with a policy that allows only your email.
@@ -78,19 +85,16 @@ secret token. Both skip quietly when the variables aren't set.
      the team's keys as well and answers 403 on every page and remote call without it, or when either var is
      empty. Static build assets are covered by Access alone.
 
-   The dashboard's other vars: `DAILY_SPEND_CAP_USD` mirrors the pipeline's cap for the spend lamp, and
-   `DASHBOARD_SPEND_CAP_USD` (2) caps Claude spend per UTC day on the on-demand answers, such as "Explain the score"
-   on a story page. Those `llm_calls` rows carry the purposes `explain`, `compare`, `review` and `ask`, and only they
-   count against it; an answer over the cap gets a 402. Without the dashboard's `ANTHROPIC_API_KEY` the buttons answer
-   that Claude is not set up, and stored answers still show. It binds the pipeline's `digest`
-   and `story-eval` Workflows by `script_name`, so deploy the pipeline first. `vite dev` skips the Access check
-   and reads the production D1 (`"remote": true`), which needs `npx wrangler login`.
+   The dashboard's other vars: `DAILY_SPEND_CAP_USD` mirrors the pipeline's cap for the status page, and
+   `DASHBOARD_SPEND_CAP_USD` (2) caps Claude spend per UTC day on Ask on the home page (`llm_calls` purpose `ask`,
+   the only one that counts against it); an answer over the cap gets a 402. Without the dashboard's
+   `ANTHROPIC_API_KEY` Ask answers that Claude is not set up, and stored answers still show. `vite dev` skips the
+   Access check and reads the production D1 (`"remote": true`), which needs `npx wrangler login`.
 
 7. Retry the deploys. The ingress log ends with `set-webhook: https://hooks.dd.nipatiitti.fi/telegram`.
 
 8. **Chat ID**: send `/start` to the bot and it replies with the chat ID. **Send it back** (comma-separate
-   several). It goes in `TELEGRAM_CHAT_IDS` in all three `wrangler.jsonc` files. The dashboard's "Send to Telegram
-   now" on a story page sends there, and refuses without its own `TELEGRAM_BOT_TOKEN`.
+   several). It goes in `TELEGRAM_CHAT_IDS` in the pipeline and ingress `wrangler.jsonc` files.
 
 ## Checking it works
 
@@ -104,5 +108,13 @@ secret token. Both skip quietly when the variables aren't set.
   the `digest` Workflow (dashboard → Workflows → digest → Trigger, or
   `npx wrangler workflows trigger digest '{"date":"test-1","edition":"morning"}'`). Use a date other than today's,
   because each date and edition sends at most once.
+- **v2 ingest**: an `ingest` line per `facet-q` batch with counts by placement (`new`, `join`, `copy`, `ask-yes`,
+  `ask-no`) and a `placed` line per article. The first deploy finds every stored article un-ingested and drains it
+  oldest first, one batch a minute; `/status` shows the backlog. `select count(*) from article_facets` tracks
+  `articles`.
+- **v2 editions**: in shadow mode (`EDITION.mode` in `packages/core/src/config.ts`) the crons run `digest-v2` beside
+  the v1 digest and it writes `digests_shadow`; `/digest/<key>` shows the two side by side. To replay past editions
+  once the backlog is in, run `node scripts/replay-editions.ts` (`--from YYYY-MM-DD`, `--dry-run`). Switching to v2
+  is `EDITION.mode = "send"`, which also stops starting the v1 digest and turns alerts on.
 - **Feedback**: tap 👍 on the digest and a `feedback` row appears
   (`npx wrangler d1 execute digest --remote --command "select * from feedback"`).

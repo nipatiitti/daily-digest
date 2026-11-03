@@ -27,3 +27,11 @@ export const runBatch = async (db: Db, queries: BatchItem<"sqlite">[]) => {
   if (!first) return []
   return db.batch([first, ...rest])
 }
+
+/** One select per chunk of ids, all in one D1 batch. `perId` bound parameters per id keeps room for the others. */
+export const selectIn = async <T>(
+  db: Db,
+  ids: number[],
+  perId: number,
+  query: (chunk: number[]) => BatchItem<"sqlite"> & PromiseLike<T[]>,
+) => ((await runBatch(db, chunkRows([...new Set(ids)], perId).map(query))) as T[][]).flat()

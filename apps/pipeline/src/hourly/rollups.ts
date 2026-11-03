@@ -1,83 +1,26 @@
-import { FETCH, HOUR_MS, HOURLY, hourBucket } from "@digest/core"
-import {
-  type Db,
-  entityBucketGroups,
-  ROLLUP_KINDS,
-  type Rollup,
-  type RollupKind,
-  rollupStart,
-  sourceBucketGroups,
-  storyBucketGroups,
-  themeBucketGroups,
-  upsertRollups,
-} from "@digest/db"
+import { DAY_MS, FETCH, HOUR_MS, HOURLY, hourBucket } from "@digest/core"
+import { type Db, deleteRollups, lastRun, markRun, oldestLateArticle, recountRollups } from "@digest/db"
 
-const COUNTS = ["articles", "origins", "newStories", "scoreSum", "scoreN"] as const
-type Counts = Partial<Pick<Rollup, (typeof COUNTS)[number]>>
+const STEP = "rollups"
 
 /**
- * Recount desk, stream, source, story, entity and theme buckets from the last HOURLY.recomputeBuckets hours, or
- * further back to the oldest article fetched or placed since the last run (late items, backlogs, requeues, missed
- * crons). Desk and stream fold the per-story groups, so a story's score and newness count once per bucket however many
- * articles it had. The entities and themes steps recount older buckets of the entities and themes they link a story to.
+ * Recount source, entity, thread and country buckets from the last HOURLY.recomputeBuckets hours, or further back to
+ * the oldest article fetched, placed in an event or newly threaded since the last run (late items, the ingest
+ * backlog, consolidation merges, missed crons). The first run drops v1's story-based entity rows and backfills the
+ * article age window. One day per batch.
  */
 export const rollupStep = async (db: Db, now: number) => {
   const to = hourBucket(now) + HOUR_MS
-  const recent = to - HOURLY.recomputeBuckets * HOUR_MS
-  // On an empty table oldestLate is the oldest article, so the first run backfills. One day per batch.
-  const { lastBucket, oldestLate } = await rollupStart(db, now, FETCH.maxItemAgeDays * 24 * HOUR_MS)
-  const start = Math.min(recent, hourBucket(oldestLate ?? recent))
+  const maxAgeMs = FETCH.maxItemAgeDays * DAY_MS
+  const last = await lastRun(db, STEP)
+  if (!last) await deleteRollups(db, "entity")
+  const late = last ? await oldestLateArticle(db, last.lastRunAt - HOUR_MS, now, maxAgeMs) : now - maxAgeMs
+  const start = Math.min(to - HOURLY.recomputeBuckets * HOUR_MS, hourBucket(late ?? now))
   let rows = 0
-  for (let from = start; from < to; from += 24 * HOUR_MS) {
-    rows += await rollupWindow(db, now, from, Math.min(from + 24 * HOUR_MS, to))
+  for (let from = start; from < to; from += DAY_MS) {
+    rows += await recountRollups(db, from, Math.min(from + DAY_MS, to), now)
   }
-  return { rows, fromHoursAgo: (to - start) / HOUR_MS, backfilled: lastBucket === null ? 1 : 0 }
-}
-
-const rollupWindow = async (db: Db, now: number, from: number, to: number) => {
-  const [storyGroups, sourceGroups, entityGroups, themeGroups] = await Promise.all([
-    storyBucketGroups(db, from, to),
-    sourceBucketGroups(db, from, to),
-    entityBucketGroups(db, from, to),
-    themeBucketGroups(db, from, to),
-  ])
-
-  const rows = new Map<string, Rollup>()
-  const add = (bucket: number, kind: RollupKind, key: string, counts: Counts) => {
-    const id = `${bucket}/${kind}/${key}`
-    const row = rows.get(id) ?? {
-      bucket,
-      kind,
-      key,
-      articles: 0,
-      origins: 0,
-      newStories: 0,
-      scoreSum: 0,
-      scoreN: 0,
-      updatedAt: now,
-    }
-    for (const c of COUNTS) row[c] += counts[c] ?? 0
-    rows.set(id, row)
-  }
-
-  for (const g of storyGroups) {
-    const articles = { articles: g.articles, origins: g.origins }
-    const newStories = g.firstSeen !== null && hourBucket(g.firstSeen) === g.bucket ? 1 : 0
-    const score = g.score === null ? {} : { scoreSum: g.score, scoreN: 1 }
-    add(g.bucket, "desk", "desk", { ...articles, newStories, ...score })
-    add(g.bucket, "stream", g.category, { ...articles, newStories, ...score })
-    if (g.storyId !== null) add(g.bucket, "story", String(g.storyId), { ...articles, ...score })
-  }
-  for (const g of sourceGroups) {
-    add(g.bucket, "source", String(g.sourceId), { articles: g.articles, origins: g.origins })
-  }
-  for (const g of entityGroups) {
-    add(g.bucket, "entity", String(g.entityId), { articles: g.articles, origins: g.origins })
-  }
-  for (const g of themeGroups) {
-    add(g.bucket, "theme", String(g.themeId), { articles: g.articles, origins: g.origins })
-  }
-
-  await upsertRollups(db, [...rows.values()], { kinds: [...ROLLUP_KINDS], from, to })
-  return rows.size
+  const counts = { rows, fromHoursAgo: (to - start) / HOUR_MS, backfilled: last ? 0 : 1 }
+  await markRun(db, STEP, now, counts)
+  return counts
 }

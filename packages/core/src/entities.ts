@@ -22,11 +22,3 @@ export const normaliseEntityKey = (name: string, suffixes: readonly string[]) =>
   const key = words.join(" ")
   return key.length < 2 ? "" : key
 }
-
-/** Kind of a new entity. Place and person need more than the name; they are set by hand on the entity page for now. */
-export const classifyEntity = (name: string, hints: { products?: string[]; cves?: string[] }) => {
-  const lower = name.trim().toLowerCase()
-  if (CVE_ID.test(lower) || hints.cves?.some((c) => c.toLowerCase() === lower)) return "cve" as const
-  if (hints.products?.some((p) => p.trim().toLowerCase() === lower)) return "product" as const
-  return "org" as const
-}

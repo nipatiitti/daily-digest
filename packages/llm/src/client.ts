@@ -20,6 +20,14 @@ export class LlmRefusal extends Error {
   }
 }
 
+/** Structured output that did not validate, such as JSON cut off at max_tokens; callers fall back as for a refusal. */
+export class LlmInvalid extends LlmRefusal {
+  constructor(public readonly detail: string) {
+    super(null)
+    this.message = `structured output did not validate: ${detail}`
+  }
+}
+
 export type LlmOptions = {
   apiKey: string
   /** AI Gateway or other proxy; the Anthropic API when unset. */
@@ -35,10 +43,13 @@ export type StructuredCall<T extends z.ZodType> = {
   prompt: string
   schema: T
   storyId?: number | null
+  eventId?: number | null
   maxTokens?: number
   effort?: "low" | "medium" | "high"
   /** Alert-path calls may run up to this multiple of the cap (brief section 9). */
   capMultiplier?: number
+  /** Sends `system` as one cached block, so calls in a run that share it read the prefix from the cache. */
+  cacheSystem?: boolean
 }
 
 export type StreamCall = Omit<StructuredCall<z.ZodType>, "schema" | "capMultiplier"> & {
@@ -49,6 +60,9 @@ export type StreamCall = Omit<StructuredCall<z.ZodType>, "schema" | "capMultipli
 const startOfUtcDay = (now: number) => now - (now % 86_400_000)
 
 const isDashboard = (p: LlmPurpose) => (DASHBOARD_LLM_PURPOSES as readonly string[]).includes(p)
+
+const systemParam = (c: Pick<StreamCall, "system" | "cacheSystem">) =>
+  c.cacheSystem ? [{ type: "text" as const, text: c.system, cache_control: { type: "ephemeral" as const } }] : c.system
 
 /** Claude client with the daily spend cap and `llm_calls` logging around every call. */
 export const createLlm = (o: LlmOptions) => {
@@ -62,11 +76,16 @@ export const createLlm = (o: LlmOptions) => {
   }
 
   /** Writes the `llm_calls` row for a call and returns its id. */
-  const logCall = async (c: Pick<StreamCall, "purpose" | "model" | "storyId">, u: Usage, error: string | null) => {
+  const logCall = async (
+    c: Pick<StreamCall, "purpose" | "model" | "storyId" | "eventId">,
+    u: Usage,
+    error: string | null,
+  ) => {
     const [call] = await recordLlmCall(o.db, {
       purpose: c.purpose,
       model: c.model,
       storyId: c.storyId ?? null,
+      eventId: c.eventId ?? null,
       inputTokens: u.input_tokens,
       outputTokens: u.output_tokens,
       cachedTokens: u.cache_read_input_tokens ?? 0,
@@ -87,7 +106,7 @@ export const createLlm = (o: LlmOptions) => {
     const res = await client.messages.create({
       model: c.model,
       max_tokens: c.maxTokens ?? 4096,
-      system: c.system,
+      system: systemParam(c),
       messages: [{ role: "user", content: c.prompt }],
       output_config: { format, effort: c.effort ?? "low" },
     })
@@ -108,7 +127,7 @@ export const createLlm = (o: LlmOptions) => {
       refused ? `refusal:${res.stop_details?.category ?? "unknown"}` : invalid ? `invalid:${invalid}` : null,
     )
     if (refused) throw new LlmRefusal(res.stop_details?.category ?? null)
-    if (invalid !== null) throw new Error(`structured output did not validate: ${invalid}`)
+    if (invalid !== null) throw new LlmInvalid(invalid)
     return { value: parsed as z.infer<T>, callId }
   }
 
@@ -125,7 +144,7 @@ export const createLlm = (o: LlmOptions) => {
     const s = client.messages.stream({
       model: c.model,
       max_tokens: c.maxTokens ?? 4096,
-      system: c.system,
+      system: systemParam(c),
       messages: [{ role: "user", content: c.prompt }],
       output_config: { effort: c.effort ?? "low" },
     })

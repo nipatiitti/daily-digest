@@ -22,22 +22,15 @@
       "remote": true
     }
   ],
-  // The pipeline defines both Workflows; the dashboard only triggers and inspects them.
-  "workflows": [
-    { "binding": "STORY_EVAL", "name": "story-eval", "class_name": "StoryEval", "script_name": "digest-pipeline" },
-    { "binding": "DIGEST", "name": "digest", "class_name": "Digest", "script_name": "digest-pipeline" }
-  ],
   "vars": {
     // Cloudflare Access team domain and the dashboard application's AUD tag (Zero Trust, Access, Applications)
     "ACCESS_TEAM_DOMAIN": "nipatiitti.cloudflareaccess.com",
     "ACCESS_AUD": "afa3cb3e93c8277b59500f3320e28e99b4c7508173e55f8f2700968e63d17a67",
-    // Claude spend per UTC day on dashboard answers (llm_calls purposes explain, compare, review, ask)
+    // Claude spend per UTC day on dashboard answers (llm_calls purpose ask)
     "DASHBOARD_SPEND_CAP_USD": "2",
-    // Same value as apps/pipeline; the spend lamp compares today's spend against it
-    "DAILY_SPEND_CAP_USD": "3.33",
-    // Same value as apps/pipeline; "Send to Telegram now" on a story page sends to these chats
-    "TELEGRAM_CHAT_IDS": "-5529066369"
+    // Same value as apps/pipeline; the status page charts spend against it
+    "DAILY_SPEND_CAP_USD": "8"
   }
   // Secrets (Workers Builds build variables, copied in by scripts/sync-secrets.ts, never here):
-  // ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN
+  // ANTHROPIC_API_KEY
 }

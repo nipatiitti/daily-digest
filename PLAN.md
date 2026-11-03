@@ -1,133 +1,136 @@
-# Scaffolding plan
+# Daily digest v2
 
-Living version: the "Daily digest: scaffolding plan" doc. This file is the repo copy as of 25 Oct 2026, with the
-27 Oct review ("Daily digest: design review" doc) folded into Decisions and Order of work. AGENTS.md has the
-working rules.
+A personal news and trend platform. The v1 scaffolding plan (security digest, stories, rubric scoring) lives in git
+history before 3 Nov 2026. AGENTS.md has the working rules, DEPLOY.md the one-time setup.
 
 ## Decisions
 
-| Question                                          | Decision                                                                                       |
-| ------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Digest time                                       | `0 6 * * *` morning, `0 15 * * *` afternoon (08:00 and 17:00 Helsinki in winter)               |
-| Embeddings                                        | `@cf/baai/bge-m3`, 1024-d, cosine. No benchmark                                                |
-| Tests                                             | None                                                                                           |
-| Git flow                                          | Commit straight to `main`, no PRs                                                              |
-| Hostnames                                         | `dd.nipatiitti.fi` (dashboard, behind Access), `hooks.dd.nipatiitti.fi` (ingress)              |
-| Backups                                           | D1 Time Travel (FTS5 virtual tables block `wrangler d1 export`)                                |
-| Lint/format                                       | Biome                                                                                          |
-| Feed ingestion                                    | Pure polling, no WebSub                                                                        |
-| Chat allowlist                                    | `TELEGRAM_CHAT_IDS` var                                                                        |
-| Order of work                                     | Embedding-first as planned (27 Oct review proposed a batch digest first; Niilo chose the plan) |
-| Claude access                                     | Direct API first (`ANTHROPIC_API_KEY`); AI Gateway later via `ANTHROPIC_BASE_URL`              |
-| Signal sources                                    | Tier D (HN, Bluesky, Google Trends, Lobsters) disabled until `signals` has an ingestion path   |
-| MSRC                                              | Disabled: 5,000+ CVE items per fetch; Microsoft issues arrive via KEV and news feeds           |
-| Opus edit, Browser Rendering, Kagi recall, Follow | Deferred until a real digest shows the need                                                    |
+| Question         | Decision                                                                                                  |
+| ---------------- | --------------------------------------------------------------------------------------------------------- |
+| What is relevant | An editable interest profile (`profile_versions`), adjusted by votes through accepted proposals           |
+| Unit of news     | An event (one real-world happening), clustered from English gists of articles                             |
+| Unit of trends   | A thread (a development over days or weeks); volume counted from its events' articles                     |
+| Ranking          | `relevance x importance x freshness x vote penalty`, in code; Haiku writes only the 0 to 100 relevance    |
+| Digest           | Two editions, `0 6 * * *` and `0 15 * * *`; a Haiku final cut, then Sonnet copy for the picks only        |
+| Embeddings       | `@cf/baai/bge-m3`, 1024-d, cosine, over `titleEn` and `gist`, in Vectorize `digest-gists`                 |
+| Dashboard        | Reader first: Home, threads, entities, countries, events, profile, digest archive, one status page        |
+| Security         | One interest among others: advisory sources reach the digest only with high profile relevance or a follow |
+| Tests            | None; `pnpm check` is the gate                                                                            |
+| Git flow         | Commit straight to `main`, no PRs                                                                         |
+| Hostnames        | `dd.nipatiitti.fi` (dashboard, behind Access), `hooks.dd.nipatiitti.fi` (ingress)                         |
+
+## Pipeline
+
+1. **Fetch** (minute cron, `fetch-q`): unchanged polling and parsing. Each new article sends a wake-up to `facet-q`.
+2. **Ingest** (`facet-q`, concurrency 1, `apps/pipeline/src/ingest.ts`): a pull run over the oldest un-ingested
+   articles (`FACETS.perRun`). Haiku writes `article_facets` in batches (English title, gist, typed entities,
+   countries involved from the text, event type, advisory, opinion, roundup and promotional flags); the gist is
+   embedded into `digest-gists`. Each article joins an event by gist cosine plus shared entities (`CLUSTER`), with
+   Haiku asked in the band, and every placement is logged in `event_articles`. Event counters, centroid, countries
+   and entities (`event_entities`, `entities.event_count`) are recomputed from the members. The minute cron sends a
+   wake-up while a backlog exists, so a first deploy or a stall drains on its own.
+3. **Hourly** (`apps/pipeline/src/hourly.ts`):
+   - v1 merge, until the switch;
+   - consolidate: young events compared by centroid across everything, every pair decision kept in `pair_decisions`
+     so no pair is asked twice;
+   - threads: substantial events (`SUBSTANTIAL`) join a candidate thread or start one, Haiku deciding and Sonnet
+     naming with the nearest threads shown; quiet threads close after 30 days and reopen on a new event;
+   - rollups by source, entity, thread and country, then momentum;
+   - relevance: Haiku scores substantial events against the current profile, again when the profile version changes
+     or the event's origins double;
+   - movers: the hour's largest risers across threads, entities and countries, with a one-line reason for the top
+     five;
+   - alerts: followed threads and entities with an official source or a velocity spike, only in send mode.
+4. **Editions** (`digest-v2` Workflow, `apps/pipeline/src/digest-v2.ts`): candidates changed since the previous
+   edition, ranked in code, thread cooldown over the last two editions, a Haiku final cut of the top 15 to 5 to 8
+   items, Sonnet copy for the picks, tags from the thread or the countries. `mode` is `send`, `shadow` (writes
+   `digests_shadow` at the crons) or `replay` (a past edition as of its send time, `scripts/replay-editions.ts`).
+5. **Nightly** (03:30 UTC): close quiet stories and events, database stats, and the reactions step that turns new
+   votes into `profile_proposals` for `/profile`.
+
+Until the switch the v1 story pipeline (`process.ts`, `story-eval.ts`, `digest.ts`, `hourly/merge.ts`) keeps sending
+the live editions and `EDITION.mode` is `"shadow"`. The switch sets it to `"send"`: the crons then start only
+`digest-v2`, and alerts turn on.
 
 ## Layout
 
 ```text
 apps/
-  pipeline/     Worker: minute cron, fetch-q + process-q consumers, StoryEval + Digest Workflows, maintenance cron
-                hourly loop: rollups, merge (fold same-story pairs among stories younger than 48 hours), entities (fold
-                extraction names into `entities` + `story_entities`), themes, momentum, brief
-                themes: embed newly extracted stories, Haiku joins each to a candidate theme or proposes one, Sonnet names or merges it,
-                then provisional themes with enough stories or score turn active and quiet ones close
-                brief: Haiku writes one paragraph into `briefs` from the readouts, the largest 24h movers (by SIG/STY id only) and
-                the previous brief, plus a line per moving signal into `themes.explanation`; signals whose momentum moved
-                `BRIEF.explainBandPct` points since their last explanation get a new one
-  ingress/      Worker: grammY webhook (hooks.dd.nipatiitti.fi, outside Access)
-  dashboard/    SvelteKit 3 on adapter-cloudflare (Workers Static Assets), dd.nipatiitti.fi behind Access; remote functions only, bindings from cloudflare:workers
+  pipeline/     Worker: crons, fetch-q, process-q (v1), facet-q, Workflows Digest (v1), StoryEval (v1), DigestV2
+  ingress/      Worker: grammY webhook for votes (hooks.dd.nipatiitti.fi, outside Access)
+  dashboard/    SvelteKit on adapter-cloudflare, dd.nipatiitti.fi behind Access; remote functions only
 packages/
-  db/           Drizzle schema, generated + hand-written migrations, query helpers, source seed
-  core/         pure logic: feed parsing, canonical URLs, dedupe, clustering, scoring, gates, Zod schemas, config
-  llm/          Claude client via AI Gateway, prompts, model + price table, spend cap
+  db/           Drizzle schema, migrations, query helpers, source and profile seed
+  core/         pure logic: feeds, URLs, countries, clustering helpers, ranking, rollups, forecast, config
+  llm/          Claude client with the spend cap and llm_calls logging, prompts, model and price table
   telegram/     HTML escaping, item rendering, callback_data codec, chat allowlist
-scripts/        bootstrap.sh (Cloudflare resources), set-webhook, seed
+scripts/        set-webhook, sync-secrets, smoke-sources, replay-editions
 ```
 
-- Packages are source-only TS (`"exports": { ".": "./src/index.ts" }`), bundled by wrangler/Vite.
-- `core` imports nothing from the workspace; `telegram` may import `core`; `llm` may import `core` and `db` (spend cap and `llm_calls` logging); `db` imports only Drizzle; packages never import apps.
-- Each Worker's `src/index.ts` only wires `env` into package functions.
-- Every _(calibrate)_ number lives in `core/src/config.ts` with a `CONFIG_VERSION`.
-- Sources live in `packages/db/seed/sources.ts`; the seed script upserts config columns only, never runtime state, except `enabled`, which the dashboard owns after insert.
+- Packages are source-only TS (`"exports": { ".": "./src/index.ts" }`), bundled by wrangler and Vite.
+- `core` imports nothing from the workspace; `telegram` may import `core`; `llm` may import `core` and `db`; `db`
+  imports only Drizzle; packages never import apps.
+- Every tunable number lives in `core/src/config.ts` with a `CONFIG_VERSION`.
 
 ## Tooling
 
 - Node 24 (`.nvmrc`), pnpm 10 (`packageManager`), TypeScript 6 strict + `noUncheckedIndexedAccess`.
 - `wrangler types` per app writes a committed `worker-configuration.d.ts` (no `@cloudflare/workers-types`).
 - Biome for lint/format; `svelte-check` for the dashboard. `pnpm check` runs both plus `tsc --noEmit`.
-- Local dev: `wrangler dev` per app with a shared `--persist-to .wrangler/state`; Workers AI and Vectorize as remote bindings.
 - Feed parsing: `fast-xml-parser`, `htmlparser2` fallback for malformed XML.
 
 ## Bindings
 
-All apps: same pinned `compatibility_date`, `nodejs_compat`, observability on, `workers_dev` and `preview_urls` off, one D1 `DB` → `digest` with `migrations_dir` → `packages/db/migrations`. One remote environment (production) plus local.
+All apps: the same pinned `compatibility_date`, `nodejs_compat`, observability on, `workers_dev` and `preview_urls`
+off, one D1 `DB` → `digest` with `migrations_dir` → `packages/db/migrations`.
 
-| Binding                                                                                                                                | pipeline                                                                     | ingress                                         | dashboard                                                                                                 |
-| -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| D1 `DB`                                                                                                                                | yes                                                                          | yes                                             | yes                                                                                                       |
-| Crons `* * * * *` scheduler, `0 * * * *` hourly, `0 6 * * *`, `0 15 * * *` digest, `30 3 * * *` maintenance, `15 12 * * *` Kagi recall | yes                                                                          |                                                 |                                                                                                           |
-| Queue `fetch-q` + `fetch-dlq` (batch 10, concurrency 5)                                                                                | produce + consume                                                            |                                                 |                                                                                                           |
-| Queue `process-q` + `process-dlq` (batch 50, 5 s timeout)                                                                              | produce + consume                                                            |                                                 |                                                                                                           |
-| Workflow `STORY_EVAL` (`StoryEval`)                                                                                                    | yes                                                                          |                                                 | yes, via `script_name`                                                                                    |
-| Workflow `DIGEST` (`Digest`), started by crons `0 6 * * *` and `0 15 * * *` with instance ID `digest-YYYY-MM-DD[-afternoon]`           | yes                                                                          |                                                 | yes, via `script_name`                                                                                    |
-| R2 `FULLTEXT` → `digest-fulltext`                                                                                                      | yes                                                                          |                                                 |                                                                                                           |
-| Workers AI `AI`, Browser Rendering `BROWSER`                                                                                           | yes                                                                          |                                                 |                                                                                                           |
-| Vectorize `VECTORS` → `digest-articles` (1024-d, cosine; metadata indexes `published_at`, `category`, `source_id` before first insert) | yes                                                                          |                                                 |                                                                                                           |
-| Secrets                                                                                                                                | `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`, `GITHUB_TOKEN`                    | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` | `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`                                                                 |
-| Vars                                                                                                                                   | `CF_ACCOUNT_ID`, `AI_GATEWAY_ID`, `TELEGRAM_CHAT_IDS`, `DAILY_SPEND_CAP_USD` | `TELEGRAM_CHAT_IDS`                             | `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `DASHBOARD_SPEND_CAP_USD`, `DAILY_SPEND_CAP_USD`, `TELEGRAM_CHAT_IDS` |
-- One `scheduled` handler switches on `controller.cron`.
-- Digest idempotency: the first step inserts into `digests(digest_date)` with `ON CONFLICT DO NOTHING`; a lost claim ends the run (scheduled instances get generated IDs).
-- Queue messages carry IDs only (128 KB cap); Workflow steps return R2 keys, not full text (~1 MiB step result cap).
-- Ingestion is pure polling; no WebSub (brief's `websub_*` columns dropped).
-- Cloudflare resources are created by hand (DEPLOY.md), never by the deploy; `scripts/set-webhook` registers Telegram with the secret token and `allowed_updates: ["message", "callback_query"]`; `scripts/smoke-sources.ts` fetches every seeded feed with the real parser.
-- Failed sources back off: the poll interval doubles per consecutive failure, capped at 24 h.
-- `process-q` runs with concurrency 1 and compares articles within a batch in memory, because Vectorize indexes asynchronously and two concurrent batches about one event would each start a story.
+| Binding                                                                 | pipeline                                   | ingress                                         | dashboard                                                                            |
+| ----------------------------------------------------------------------- | ------------------------------------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Crons `* * * * *`, `0 * * * *`, `0 6 * * *`, `0 15 * * *`, `30 3 * * *` | yes                                        |                                                 |                                                                                      |
+| Queue `fetch-q` + `fetch-dlq` (batch 10, concurrency 5)                 | produce + consume                          |                                                 |                                                                                      |
+| Queue `process-q` + `process-dlq` (v1, batch 50, concurrency 1)         | produce + consume                          |                                                 |                                                                                      |
+| Queue `facet-q` + `facet-dlq` (wake-ups, batch 100, concurrency 1)      | produce + consume                          |                                                 |                                                                                      |
+| Workflows `DIGEST` (v1), `STORY_EVAL` (v1), `DIGEST_V2`                 | yes                                        |                                                 |                                                                                      |
+| Workers AI `AI`                                                         | yes                                        |                                                 |                                                                                      |
+| Vectorize `VECTORS` → `digest-articles` (v1), `GISTS` → `digest-gists`  | yes                                        |                                                 |                                                                                      |
+| Secrets                                                                 | `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`  | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` | `ANTHROPIC_API_KEY`                                                                  |
+| Vars                                                                    | `TELEGRAM_CHAT_IDS`, `DAILY_SPEND_CAP_USD` | `TELEGRAM_CHAT_IDS`                             | `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `DASHBOARD_SPEND_CAP_USD`, `DAILY_SPEND_CAP_USD` |
+- Edition idempotency: send mode claims `digests(digest_date)` with `ON CONFLICT DO NOTHING`; shadow and replay
+  replace their own `digests_shadow` rows.
+- Queue messages carry IDs only; Workflow steps return small JSON, never vectors or full text.
+- Cloudflare resources are created by hand (DEPLOY.md), never by the deploy.
 
 ## Drizzle and D1
 
-1. Schema in `packages/db/src/schema/`, one file per area. `drizzle.config.ts`: `dialect: "sqlite"`, `out: "./migrations"`, `d1-http` driver only for studio.
-2. `pnpm db:generate` (`drizzle-kit generate`), then `wrangler d1 migrations apply digest --local|--remote`.
-3. FTS5 via `drizzle-kit generate --custom --name=fts`: external-content `articles_fts`, `stories_fts`, `tokenize = "unicode61 remove_diacritics 2"`, `prefix = "2 3"`, plus triggers. `entities_fts` over `entities.name` the same way (`--name=entities_fts`), and `themes_fts` over `themes.name, description` (`--name=themes_fts`).
-4. Integer PKs for `articles`, `stories`, `facts`, `deliveries` (rowid alias for FTS5, short `callback_data`). Timestamps as unix ms; `*_json` columns as typed `text({ mode: "json" })`.
-5. Dedupe via unique constraints: `articles.canonical_url`, `(source_id, guid)`, `telegram_updates.update_id`, `digests.digest_date`.
-6. `getDb(env.DB)`, `chunkedBatch()` (100 bound params per statement), typed query helpers per stage.
-7. `match_log` keeps one row per article placement (how, best candidate story and its cosine) for calibrating `MATCH`.
-8. `briefs` keeps one row per hourly brief: `at`, the text, `movers_json` (the readouts and movers it was written from) and the `llm_calls` row of the call that wrote it. The front page shows the newest, `/briefs` the history.
-9. `llm_answers` keeps on-demand dashboard answers (purposes `explain`, `compare`, `review`, `ask`, which only the dashboard uses) by purpose, subject and the SHA-256 of the model, system prompt and prompt, so `POST /api/answer` returns the stored text until the input changes and otherwise streams a new one. Only their `llm_calls` rows count against `DASHBOARD_SPEND_CAP_USD`, and the pipeline's `DAILY_SPEND_CAP_USD` counts every other purpose. "Explain the score" on the story page is the first.
+1. Schema in `packages/db/src/schema/`, one file per area. `pnpm db:generate`, then the pipeline deploy applies
+   migrations.
+2. Integer PKs; timestamps as unix ms; `*_json` columns as typed `text({ mode: "json" })`; float32 vectors as BLOBs
+   through `vector()` in `schema/common.ts`.
+3. D1 rejects statements with more than 100 bound parameters: chunk `inArray` lists and multi-row inserts.
+4. `event_articles` is both membership and the placement log for calibrating `CLUSTER`; `pair_decisions` is the
+   negative cache for consolidation.
+5. `llm_answers` keeps Ask answers by the SHA-256 of their input; only purpose `ask` counts against
+   `DASHBOARD_SPEND_CAP_USD`, and the pipeline's `DAILY_SPEND_CAP_USD` counts every other purpose.
 
 Traps:
-- A drizzle-kit table rebuild (`__new_articles`) drops FTS triggers; follow it with a custom migration that recreates them.
-- D1 enforces foreign keys and ignores `PRAGMA foreign_keys = OFF`; swap generated rebuilds to `PRAGMA defer_foreign_keys = on`.
+- A drizzle-kit table rebuild drops FTS triggers; follow it with a custom migration that recreates them.
+- D1 enforces foreign keys and ignores `PRAGMA foreign_keys = OFF`; swap generated rebuilds to
+  `PRAGMA defer_foreign_keys = on`.
 
 ## CI/CD
 
-Each Worker is a Cloudflare Workers Builds project linked to the repo (repo root, deploy command `pnpm run deploy:<app>`), so every push to `main` deploys without Cloudflare credentials in GitHub. The pipeline's deploy applies `wrangler d1 migrations apply digest --remote` and the source seed before `wrangler deploy`. Migrations stay additive. The GitHub workflow only runs `pnpm check`. Secrets are set once as Workers Builds build variables and copied into runtime secrets by the deploy. One-time steps are in [DEPLOY.md](DEPLOY.md).
+Each Worker is a Workers Builds project linked to the repo (deploy command `pnpm run deploy:<app>`), so every push to
+`main` deploys. The pipeline's deploy applies migrations and upserts the source and profile seed before
+`wrangler deploy`. Migrations stay additive, because both Workers deploy the same commit in parallel.
 
 ## Order of work
 
-Done when a walking skeleton runs in production: at 07:00 UTC a "Nothing notable today" digest arrives in Telegram and tapping 👍 writes a `feedback` row.
-
-1. Repo foundation. Done.
-2. Database package: full schema, FTS migration, source seed. Done.
-3. Pipeline skeleton: all bindings incl. Vectorize, scheduler, fetch consumer writing articles, process consumer embedding with bge-m3 and matching articles to stories (brief section 5: wire-copy collapse, cosine bands, Haiku in the ask band, CVE hard key, same-source penalty), evidence gate, StoryEval stub, Digest sending the empty digest, minimal `telegram`. Done 27 Oct; needs the Vectorize index and `process-q` created (DEPLOY.md).
-4. Ingress: grammY webhook, secret check, `update_id` dedupe, callback answers, feedback writes, `set-webhook`. Done.
-5. Real pipeline stages. Done 27 Oct: StoryEval (full text via `AI.toMarkdown` for the two leading origins, Sonnet extraction and rubric, EPSS and KEV enrichment into `vulns`, facts with Haiku novelty labels, score, alert gate in shadow mode, update gate), Digest reading stories (candidates since the previous digest, slotting in code, one message per item with badge, code-chosen links and votes, re-delivery only after the update gate passes), maintenance cron at 03:30 UTC (close stories quiet for 7 days, `db_stats`, stale sources in the log). 28 Oct after the first real digest: items cut to tag, headline, one sentence and a comma-separated source line (no "why it matters" shown, no middle dots), the extraction prompt limits `what_happened` to one sentence of 25 words, and the Digest workflow checks its top candidates pairwise for the same event (title overlap, else Haiku) and merges the loser into the winner before slotting, because the matcher kept a Finnish and an English version of one event apart. `MATCH.newStoryCosine` dropped to 0.65 so such pairs reach the Haiku ask at process time too. Slots since 28 Oct: 2 Finland (relevance 2, floor 45, filled first), 3 tech/security, 2 world. Not yet: Following section, Opus edit, quiet hours and alert sending (shadow only), R2 full-text storage (fetched at eval time, not stored).
-6. Dashboard shell: SvelteKit on adapter-cloudflare, Access JWT check in `hooks.server.ts`, design tokens, server-rendered SVG charts. Done 29 Oct.
-7. Front page: range control, readouts, stream chart with projection, top stories, ops strip. Done 29 Oct.
-8. Table browser over every Drizzle table with filters, FTS, keyset paging, CSV and audited cell edits. Done 29 Oct.
-9. Story, article and entity pages with audited actions. Done 29 Oct.
-10. Hourly loop: rollups per hour and subject, entities folded from extraction, themes shown as signals, momentum and Holt forecast. Done 29 Oct.
-11. Hourly brief in the hero and at `/briefs`, with an explanation per moving signal. Done 29 Oct.
-12. On-demand Claude answers at `POST /api/answer` under their own `DASHBOARD_SPEND_CAP_USD`, "Explain the score", "Explain this spike", "Compare", "Month in review" and "Ask the desk" at `/ask`. Done 30 Oct.
-13. Sources page with audited enable, disable, poll now and reset. Done 29 Oct.
-14. Ops page: spend by day and purpose, gate log, StoryEval activity, database size, calibration, loop health. Done 29 Oct.
-15. Digest archive at `/digest` with each edition as Telegram rendered it, and "Send to Telegram now" on the story page. Done 30 Oct.
-16. Two editions (06:00 and 15:00 UTC), no update items, candidates checked against already delivered stories, stricter update gate and novelty prompt. Done 30 Oct.
-17. Same-event splits fixed where they happen. Done 30 Oct: the matcher's ask band starts at 0.55 (cross-language reports of one event sit around 0.6) and offers Haiku up to three candidate stories in one call, with a "same story" prompt that counts direct continuations (aftermath, reactions, later figures, patches) as the same story. An hourly merge pass after rollups compares each active story younger than 48 hours with its Vectorize neighbours in the same topic group, merges wire copies outright and asks Haiku about the rest (at most 20 asks a run), folding the younger story into the older; a merge now carries facts, deliveries and votes along. The digest's own dedupe is gone and delivered stories are simply skipped. Not yet: a negative cache of pairs Haiku said no to, if `merge_asked` shows the same pairs asked hour after hour.
-18. Attention source ingestion into `signals`. The tier D feeds stay disabled until then.
-19. Follow.
-20. Alert calibration on the shadow gate logs after the two week shadow period, then alerts for real.
-21. Telegram links to the site, if Niilo wants them.
-
-Later: velocity signals, EUVD, HF trending and HTML-diff parsers, Kagi recall, Opus edit.
+1. Phase 0, done 3 Nov: Finland from a country list, theme cooldown, one Haiku dedupe, advisory floor.
+2. v2 schema, facets, events, threads, relevance, the v2 digest in shadow, the dashboard and the feedback loop,
+   done 3 Nov.
+3. Backfill and replay: the first v2 deploy drains every stored article; then `node scripts/replay-editions.ts`
+   writes what v2 would have sent for every past edition, to compare on `/digest/<key>`.
+4. Switch: `EDITION.mode = "send"`, `DAILY_SPEND_CAP_USD` back to 3.33, then delete the v1 code (stories,
+   StoryEval, the v1 digest and merge, the CVE tables' readers) and its resources (`digest-articles`, `process-q`,
+   `process-dlq`, the `digest` and `story-eval` Workflows).
+5. A later deploy drops the retired tables and columns once no Worker reads them.

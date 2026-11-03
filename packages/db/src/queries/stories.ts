@@ -147,15 +147,6 @@ export const kevDates = async (db: Db, cveIds: string[]) => {
   return new Map(rows.map((r) => [r.cve, r.at]))
 }
 
-export const storyVulnEpss = async (db: Db, storyId: number) => {
-  const rows = await db
-    .select({ epss: vulns.epss, kev: vulns.kevDateAdded })
-    .from(storyVulns)
-    .innerJoin(vulns, eq(vulns.cveId, storyVulns.cveId))
-    .where(eq(storyVulns.storyId, storyId))
-  return rows
-}
-
 /** The most recent delivery of a story, if any. */
 export const lastDelivery = async (db: Db, storyId: number) => {
   const [row] = await db
@@ -165,14 +156,6 @@ export const lastDelivery = async (db: Db, storyId: number) => {
     .orderBy(desc(deliveries.sentAt))
     .limit(1)
   return row ?? null
-}
-
-export const alertsSince = async (db: Db, since: number) => {
-  const [row] = await db
-    .select({ n: sql<number>`count(*)` })
-    .from(deliveries)
-    .where(and(eq(deliveries.kind, "alert"), gte(deliveries.sentAt, since)))
-  return row?.n ?? 0
 }
 
 /** Stories with no new article for the given period are closed. */

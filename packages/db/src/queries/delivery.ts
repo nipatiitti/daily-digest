@@ -61,7 +61,7 @@ export const markUpdateSeen = async (db: Db, updateId: number) => {
   return rows.length > 0
 }
 
-/** One vote per user per delivery; a second tap replaces the first. */
+/** One vote per user per delivery; a second tap replaces the first and counts as cast now. */
 export const recordFeedback = (
   db: Db,
   v: {
@@ -83,5 +83,5 @@ export const recordFeedback = (
     })
     .onConflictDoUpdate({
       target: [feedback.deliveryId, feedback.tgUserId],
-      set: { vote: v.vote },
+      set: { vote: v.vote, createdAt: Date.now() },
     })

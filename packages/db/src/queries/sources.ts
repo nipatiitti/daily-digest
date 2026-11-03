@@ -2,15 +2,6 @@ import { and, asc, eq, inArray, lte, sql } from "drizzle-orm"
 import type { Db } from "../client.ts"
 import { sources } from "../schema/index.ts"
 
-/** Enabled sources whose next poll is due. */
-export const dueSources = (db: Db, now: number, limit = 100) =>
-  db
-    .select()
-    .from(sources)
-    .where(and(eq(sources.enabled, true), lte(sources.nextPollAt, now)))
-    .orderBy(asc(sources.nextPollAt))
-    .limit(limit)
-
 /**
  * Claim due sources by pushing their next poll one interval ahead, so the next tick
  * doesn't enqueue them again while a fetch is in flight. Returns the claimed IDs.

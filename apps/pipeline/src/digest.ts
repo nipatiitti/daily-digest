@@ -16,7 +16,6 @@ import {
   setDeliveryMessageId,
   storyArticles,
   storyEntityNames,
-  themeCooldownStories,
 } from "@digest/db"
 import { LlmRefusal, SpendCapError, sameEventGroups } from "@digest/llm"
 import {
@@ -59,9 +58,8 @@ const log = (event: string, data: Record<string, unknown>) => console.log(JSON.s
 
 /**
  * Digest, a morning and an afternoon edition: candidates are scored stories that changed since the previous edition
- * and were never delivered, so a delivered story is never sent again. A story sharing a theme with one delivered in
- * the last DIGEST.themeCooldownEditions editions waits, and an advisory-only story needs DIGEST.advisoryFloor. Slots
- * are filled in code, then one Haiku call groups same-event picks: the best of each group stays, the others are merged
+ * and were never delivered, so a delivered story is never sent again. An advisory-only story needs
+ * DIGEST.advisoryFloor. Slots are filled in code, then one Haiku call groups same-event picks: the best of each group stays, the others are merged
  * into it so they do not come back, and the slots are filled again without them. One Telegram message per item, each
  * with its own delivery row and vote buttons.
  */
@@ -81,20 +79,17 @@ export class Digest extends WorkflowEntrypoint<Env, DigestParams> {
       const since = (await previousDigestSentAt(db)) ?? now - DIGEST.windowHours * HOUR
       const changed = await changedStories(db, since)
       const ids = changed.map((s) => s.id)
-      const [prior, sources, cooling, advisory, entities] = await Promise.all([
+      const [prior, sources, advisory, entities] = await Promise.all([
         latestDeliveries(db, ids),
         mainSources(db, ids),
-        themeCooldownStories(db, ids, DIGEST.themeCooldownEditions),
         advisoryOnlyStories(db, ids),
         storyEntityNames(db, ids),
       ])
-      let cooldown = 0
       let advisoryHeld = 0
       const candidates: Candidate[] = []
       for (const s of changed) {
         if (s.score === null || s.category === "fi" || prior.has(s.id)) continue
-        if (cooling.has(s.id)) cooldown++
-        else if (advisory.has(s.id) && s.score < DIGEST.advisoryFloor) advisoryHeld++
+        if (advisory.has(s.id) && s.score < DIGEST.advisoryFloor) advisoryHeld++
         else {
           candidates.push({
             storyId: s.id,
@@ -134,7 +129,6 @@ export class Digest extends WorkflowEntrypoint<Env, DigestParams> {
         date,
         edition,
         candidates: candidates.length,
-        cooldown,
         advisoryHeld,
         dedupe,
         merged,

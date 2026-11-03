@@ -28,6 +28,7 @@ import {
   storiesWithCves,
 } from "@digest/db"
 import { type Llm, LlmRefusal, pickStory, SpendCapError } from "@digest/llm"
+import { embed } from "./embed.ts"
 import type { StoryEvalParams } from "./story-eval.ts"
 
 export type ProcessMessage = { articleId: number }
@@ -47,13 +48,6 @@ type Neighbour = {
 
 /** Articles already handled in this batch, so same-batch stories match before Vectorize has indexed them. */
 type Done = { article: ProcessArticle; vector: number[]; storyId: number; originId: number | null }
-
-export const embed = async (ai: Ai, texts: string[]): Promise<number[][]> => {
-  const out = (await ai.run(EMBED.model, { text: texts, truncate_inputs: true })) as { data?: number[][] }
-  if (!out.data || out.data.length !== texts.length)
-    throw new Error(`embedding returned ${out.data?.length ?? 0} vectors`)
-  return out.data
-}
 
 /** Vectorize neighbours plus same-batch neighbours, with their current story and origin. */
 const neighbours = async (

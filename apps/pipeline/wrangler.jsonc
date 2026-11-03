@@ -23,7 +23,11 @@
     }
   ],
   "queues": {
-    "producers": [{ "binding": "FETCH_Q", "queue": "fetch-q" }, { "binding": "PROCESS_Q", "queue": "process-q" }],
+    "producers": [
+      { "binding": "FETCH_Q", "queue": "fetch-q" },
+      { "binding": "PROCESS_Q", "queue": "process-q" },
+      { "binding": "FACET_Q", "queue": "facet-q" }
+    ],
     "consumers": [
       {
         "queue": "fetch-q",
@@ -41,24 +45,39 @@
         "max_concurrency": 1,
         "max_retries": 2,
         "dead_letter_queue": "process-dlq"
+      },
+      {
+        // v2 ingest wake-ups: each batch takes the oldest un-ingested articles from D1, whatever the messages say.
+        "queue": "facet-q",
+        "max_batch_size": 100,
+        "max_batch_timeout": 5,
+        // One run at a time, so a backlog is clustered in fetch order and same-batch events match in memory.
+        "max_concurrency": 1,
+        "max_retries": 2,
+        "dead_letter_queue": "facet-dlq"
       }
     ]
   },
   "workflows": [
     { "binding": "DIGEST", "name": "digest", "class_name": "Digest" },
-    { "binding": "STORY_EVAL", "name": "story-eval", "class_name": "StoryEval" }
+    { "binding": "STORY_EVAL", "name": "story-eval", "class_name": "StoryEval" },
+    { "binding": "DIGEST_V2", "name": "digest-v2", "class_name": "DigestV2" }
   ],
   "ai": { "binding": "AI" },
   "vectorize": [
     // bge-m3, 1024-d, cosine. Created by hand (DEPLOY.md) with metadata indexes on
     // published_at, category and source_id before the first insert.
-    { "binding": "VECTORS", "index_name": "digest-articles" }
+    { "binding": "VECTORS", "index_name": "digest-articles" },
+    // v2: the English gist of each article, bge-m3, 1024-d, cosine. Created by hand (DEPLOY.md) with a metadata
+    // index on published_at before the first insert.
+    { "binding": "GISTS", "index_name": "digest-gists" }
   ],
   "vars": {
     // Comma-separated Telegram chat IDs that receive the digest (send /start to the bot to get one)
     "TELEGRAM_CHAT_IDS": "-5529066369",
-    // Claude spend per UTC day before the pipeline degrades (see packages/llm)
-    "DAILY_SPEND_CAP_USD": "3.33"
+    // Claude spend per UTC day before the pipeline degrades (see packages/llm). 8 while v1 and v2 run side by side
+    // and v2 backfills; back to 3.33 at the switch.
+    "DAILY_SPEND_CAP_USD": "8"
   }
   // Secrets (set in the dashboard, never here): TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY
 }
