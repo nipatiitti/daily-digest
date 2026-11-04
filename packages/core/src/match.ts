@@ -1,5 +1,3 @@
-import { MATCH } from "./config.ts"
-
 export const cosine = (a: ArrayLike<number>, b: ArrayLike<number>) => {
   let dot = 0
   let na = 0
@@ -34,23 +32,9 @@ export const titleJaccard = (a: string, b: string) => {
   return inter / (ta.size + tb.size - inter)
 }
 
-const CVE = /\bCVE-\d{4}-\d{4,7}\b/gi
-
-export const extractCveIds = (text: string) => [...new Set((text.match(CVE) ?? []).map((c) => c.toUpperCase()))]
-
-/** Similarity after the same-source penalty: distance (1 - cos) is multiplied, then mapped back. */
-export const penalised = (score: number, sameSource: boolean) =>
-  sameSource ? 1 - MATCH.sameSourcePenalty * (1 - score) : score
-
 export type MatchDecision = "join" | "new" | "ask"
 
-export const decideMatch = (bestScore: number | null): MatchDecision => {
-  if (bestScore === null || bestScore < MATCH.newStoryCosine) return "new"
-  if (bestScore >= MATCH.joinCosine) return "join"
-  return "ask"
-}
-
-/** Stable key for a story's article set; a changed key means StoryEval has new input. */
+/** Stable key for an article set; a changed key means the set changed. */
 export const articleSetHash = (ids: number[]) => {
   let h = 2166136261
   for (const id of [...ids].sort((a, b) => a - b)) {

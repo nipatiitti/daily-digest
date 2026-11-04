@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 25
+export const CONFIG_VERSION = 26
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -13,115 +13,21 @@ export const FETCH = {
 
 export const EMBED = {
   model: "@cf/baai/bge-m3" as const,
-  /** Title plus lead, roughly 300 to 500 tokens. Never the LLM summary. */
-  maxChars: 1500,
 }
 
-/** Article to story matching (brief section 5). All of these are (calibrate). */
-export const MATCH = {
-  /** Same origin (wire copy) when cosine is at least this... */
-  copyCosine: 0.95,
-  /** ...or title Jaccard is at least this. */
-  copyTitleJaccard: 0.55,
-  /** Join the best story automatically at or above this. */
-  joinCosine: 0.85,
-  /**
-   * Start a new story below this; in between, ask Haiku which candidate story, if any, the article belongs to.
-   * Cross-language reports of one event sit around 0.6, so the band starts below them.
-   */
-  newStoryCosine: 0.55,
-  /** Candidate stories in the ask band offered to Haiku in one call, best first. */
-  askCandidates: 3,
-  /** Used in the ask band when no LLM key is configured. */
-  fallbackCosine: 0.8,
-  topK: 20,
-  /** How far back candidate articles may reach, by the incoming article's category. */
-  windowHours: { security: 168, tech: 168, world: 72, fi: 72 } as Record<string, number>,
-  /** Two articles from the same source have their distance multiplied by this. */
-  sameSourcePenalty: 5,
-}
-
-/** Evidence bar for spending Sonnet on a story (brief section 6). */
-export const EVIDENCE = {
-  minIndependentOrigins: 2,
-  /** One Tier A source or one Finnish-language source also clears the bar. */
-  authoritativeCount: 1,
-}
-
-/** Story evaluation (brief section 6). */
 export const EVAL = {
-  /** Origin articles whose full text is fetched for extraction, authoritative first. */
-  fulltextArticles: 2,
-  fulltextMaxChars: 12_000,
-  fetchTimeoutMs: 15_000,
-  /** Above this share of the daily cap, stories without a Tier A source are not extracted. */
+  /** Above this share of the daily cap, the hourly threads, relevance and movers steps skip. */
   spendSoftCap: 0.8,
-  /** Tier A stories may spend up to this multiple of the cap (the alert path stays alive). */
-  tierACapMultiplier: 1.25,
 }
 
-/** Rubric weights (sum 1), caps and the score formula (brief section 6). All (calibrate). */
-export const SCORING = {
-  weights: {
-    severity: 0.25,
-    specificity: 0.2,
-    breadth: 0.2,
-    actionability: 0.15,
-    novelty: 0.1,
-    credibility: 0.1,
-  } as Record<string, number>,
-  caps: { promotional: 74, aggregator: 40, evergreen: 60 },
-  credibilityByTier: { A: 1, B: 0.95, C: 0.8, D: 0.7 } as Record<string, number>,
-  unknownCredibility: 0.7,
-  recencyHalfLifeHours: 18,
-  originBonusMax: 15,
-  /** Bonus per independent origin seen in the last 6 hours, capped. */
-  velocityBonusPerOrigin: 2,
-  velocityBonusMax: 10,
-  /** Score bands; crossing one is a material update. */
-  tierBounds: [45, 60, 75, 90],
-  /** EPSS at or above this counts toward security majorness. */
-  epssMajor: 0.1,
-}
-
-/** Alert gate (brief section 6). Shadow mode for the first two weeks. */
-export const ALERT = {
-  shadow: true,
-  minScore: 90,
-  /** Non-authoritative world stories also need this many independent outlets within the window. */
-  worldVelocityOrigins: 4,
-  worldVelocityWindowMinutes: 30,
-  /** Material update: one new or contradicting fact of a key type with at least this salience... */
-  materialSalience: 3,
-  /** ...or this many new or contradicting key type facts of distinct types, each with salience one below that. */
-  materialKeyFacts: 2,
-  materialOriginJump: 5,
-}
-
-/** Digest composition (brief section 7). */
 export const DIGEST = {
-  floor: 60,
-  fiFloor: 45,
-  /** Added to a Finland story's score for ranking only. */
-  finlandBoost: 8,
-  /** Security and tech share one group. Finland means the title or an extracted entity names a place in Finland. */
-  slots: { techSecurity: 3, world: 2, fi: 2 },
-  /** A story whose origins all come from advisory sources needs this score. */
-  advisoryFloor: 80,
-  maxItems: 7,
-  maxPerSource: 2,
-  /** Candidates are stories that changed within this window before the run. */
-  windowHours: 30,
   maxLinks: 3,
   /** UTC hours the two editions go out; the digest crons in apps/pipeline/wrangler.jsonc must match. */
   editions: { morning: 6, afternoon: 15 },
 }
 
 export const MAINTENANCE = {
-  closeStoryAfterDays: 7,
-  /** Unassigned articles this recent are put back on process-q nightly. */
-  requeueWindowDays: 2,
-  requeueLimit: 500,
+  closeEventAfterDays: 7,
   dbWarnBytes: [4e9, 8e9],
 }
 
@@ -131,12 +37,6 @@ export const HOURLY = {
   recomputeBuckets: 3,
   /** Momentum compares the last N complete hours with the N before: short is momentum_24h, long is momentum_7d. */
   momentumWindows: { short: 24, long: 168 },
-  /**
-   * v1 story merge pass, first in the hourly loop. Each active story first seen within `recentHours` looks up the
-   * `topK` nearest articles to its lead article; a close story in the same topic group merges outright on a wire copy
-   * cosine or title, otherwise after Haiku says it is the same story. At most `maxAsksPerRun` asks per run.
-   */
-  merge: { recentHours: 48, topK: 10, maxAsksPerRun: 20 },
 }
 
 /** Entity keys: ingest folds facet entity names into `entities` by normaliseEntityKey. */
@@ -364,7 +264,7 @@ export const RANKING = {
 
 /** The v2 digest edition. */
 export const EDITION = {
-  /** "shadow" writes digests_shadow beside the v1 digest; "send" replaces v1 and turns alerts on. */
+  /** "send" sends and turns alerts on; "shadow" only writes digests_shadow at the crons. */
   mode: "send" as "shadow" | "send",
   /** Candidates changed since the previous edition, or within this window before the first one. */
   windowHours: 30,

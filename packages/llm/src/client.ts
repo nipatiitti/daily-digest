@@ -42,7 +42,6 @@ export type StructuredCall<T extends z.ZodType> = {
   system: string
   prompt: string
   schema: T
-  storyId?: number | null
   eventId?: number | null
   maxTokens?: number
   effort?: "low" | "medium" | "high"
@@ -76,15 +75,10 @@ export const createLlm = (o: LlmOptions) => {
   }
 
   /** Writes the `llm_calls` row for a call and returns its id. */
-  const logCall = async (
-    c: Pick<StreamCall, "purpose" | "model" | "storyId" | "eventId">,
-    u: Usage,
-    error: string | null,
-  ) => {
+  const logCall = async (c: Pick<StreamCall, "purpose" | "model" | "eventId">, u: Usage, error: string | null) => {
     const [call] = await recordLlmCall(o.db, {
       purpose: c.purpose,
       model: c.model,
-      storyId: c.storyId ?? null,
       eventId: c.eventId ?? null,
       inputTokens: u.input_tokens,
       outputTokens: u.output_tokens,

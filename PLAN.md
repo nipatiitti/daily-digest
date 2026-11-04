@@ -30,7 +30,6 @@ history before 3 Nov 2026. AGENTS.md has the working rules, DEPLOY.md the one-ti
    and entities (`event_entities`, `entities.event_count`) are recomputed from the members. The minute cron sends a
    wake-up while a backlog exists, so a first deploy or a stall drains on its own.
 3. **Hourly** (`apps/pipeline/src/hourly.ts`):
-   - v1 merge, until the switch;
    - consolidate: young events compared by centroid across everything, every pair decision kept in `pair_decisions`
      so no pair is asked twice;
    - threads: substantial events (`SUBSTANTIAL`) join a candidate thread or start one, Haiku deciding and Sonnet
@@ -45,18 +44,17 @@ history before 3 Nov 2026. AGENTS.md has the working rules, DEPLOY.md the one-ti
    edition, ranked in code, thread cooldown over the last two editions, a Haiku final cut of the top 15 to 5 to 8
    items, Sonnet copy for the picks, tags from the thread or the countries. `mode` is `send`, `shadow` (writes
    `digests_shadow` at the crons) or `replay` (a past edition as of its send time, `scripts/replay-editions.ts`).
-5. **Nightly** (03:30 UTC): close quiet stories and events, database stats, and the reactions step that turns new
+5. **Nightly** (03:30 UTC): close quiet events, database stats, and the reactions step that turns new
    votes into `profile_proposals` for `/profile`.
 
-Until the switch the v1 story pipeline (`process.ts`, `story-eval.ts`, `digest.ts`, `hourly/merge.ts`) keeps sending
-the live editions and `EDITION.mode` is `"shadow"`. The switch sets it to `"send"`: the crons then start only
-`digest-v2`, and alerts turn on.
+The v1 story pipeline sent the editions until the switch on 4 Nov 2026; its tables stay, read only by the
+dashboard's archive of v1 editions and by votes on v1 messages, until a later migration drops them.
 
 ## Layout
 
 ```text
 apps/
-  pipeline/     Worker: crons, fetch-q, process-q (v1), facet-q, Workflows Digest (v1), StoryEval (v1), DigestV2
+  pipeline/     Worker: crons, fetch-q, facet-q, Workflow DigestV2
   ingress/      Worker: grammY webhook for votes (hooks.dd.nipatiitti.fi, outside Access)
   dashboard/    SvelteKit on adapter-cloudflare, dd.nipatiitti.fi behind Access; remote functions only
 packages/
@@ -88,11 +86,10 @@ off, one D1 `DB` → `digest` with `migrations_dir` → `packages/db/migrations`
 | ----------------------------------------------------------------------- | ------------------------------------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------ |
 | Crons `* * * * *`, `0 * * * *`, `0 6 * * *`, `0 15 * * *`, `30 3 * * *` | yes                                        |                                                 |                                                                                      |
 | Queue `fetch-q` + `fetch-dlq` (batch 10, concurrency 5)                 | produce + consume                          |                                                 |                                                                                      |
-| Queue `process-q` + `process-dlq` (v1, batch 50, concurrency 1)         | produce + consume                          |                                                 |                                                                                      |
 | Queue `facet-q` + `facet-dlq` (wake-ups, batch 100, concurrency 1)      | produce + consume                          |                                                 |                                                                                      |
-| Workflows `DIGEST` (v1), `STORY_EVAL` (v1), `DIGEST_V2`                 | yes                                        |                                                 |                                                                                      |
+| Workflow `DIGEST_V2`                                                    | yes                                        |                                                 |                                                                                      |
 | Workers AI `AI`                                                         | yes                                        |                                                 |                                                                                      |
-| Vectorize `VECTORS` → `digest-articles` (v1), `GISTS` → `digest-gists`  | yes                                        |                                                 |                                                                                      |
+| Vectorize `GISTS` → `digest-gists`                                      | yes                                        |                                                 |                                                                                      |
 | Secrets                                                                 | `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`  | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` | `ANTHROPIC_API_KEY`                                                                  |
 | Vars                                                                    | `TELEGRAM_CHAT_IDS`, `DAILY_SPEND_CAP_USD` | `TELEGRAM_CHAT_IDS`                             | `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `DASHBOARD_SPEND_CAP_USD`, `DAILY_SPEND_CAP_USD` |
 - Edition idempotency: send mode claims `digests(digest_date)` with `ON CONFLICT DO NOTHING`; shadow and replay
@@ -130,7 +127,6 @@ Each Worker is a Workers Builds project linked to the repo (deploy command `pnpm
    done 3 Nov.
 3. Backfill and replay: the first v2 deploy drains every stored article; then `node scripts/replay-editions.ts`
    writes what v2 would have sent for every past edition, to compare on `/digest/<key>`.
-4. Switch: `EDITION.mode = "send"`, `DAILY_SPEND_CAP_USD` back to 3.33, then delete the v1 code (stories,
-   StoryEval, the v1 digest and merge, the CVE tables' readers) and its resources (`digest-articles`, `process-q`,
-   `process-dlq`, the `digest` and `story-eval` Workflows).
+4. Switch, done 4 Nov: `EDITION.mode = "send"`, the v1 code deleted, then its resources (`digest-articles`,
+   `process-q`, `process-dlq`, the `digest` and `story-eval` Workflows).
 5. A later deploy drops the retired tables and columns once no Worker reads them.

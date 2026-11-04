@@ -1,7 +1,6 @@
 import type { Db } from "@digest/db"
 import { alertsStep } from "./alerts.ts"
 import { consolidateStep } from "./hourly/consolidate.ts"
-import { mergeStep } from "./hourly/merge.ts"
 import { momentumStep } from "./hourly/momentum.ts"
 import { moversStep } from "./hourly/movers.ts"
 import { rollupStep } from "./hourly/rollups.ts"
@@ -14,8 +13,6 @@ type Step = { name: string; run: () => Promise<Record<string, number | undefined
 /** Hourly loop at minute 0. Steps run in order; one failing is logged and the rest still run. */
 export const runHourly = async (env: Env, db: Db, llm: ReturnType<typeof llmFor>, now: number) => {
   const steps: Step[] = [
-    // v1 stories, for the v1 digest until the switch.
-    { name: "merge", run: () => mergeStep(env, db, llm, now) },
     // Fold duplicate events before threads and rollups read event ids.
     { name: "consolidate", run: () => consolidateStep({ GISTS: env.GISTS }, db, llm, now) },
     { name: "threads", run: () => threadsStep(db, llm, now) },

@@ -1,52 +1,28 @@
 import { EDITION, type Edition, editionKey, FACETS } from "@digest/core"
 import { getDb } from "@digest/db"
-import type { DigestParams } from "./digest.ts"
 import type { DigestV2Params } from "./digest-v2.ts"
 import { type FetchMessage, fetchSource } from "./fetch.ts"
 import { runHourly } from "./hourly.ts"
 import { type IngestMessage, ingestArticles, ingestBacklog } from "./ingest.ts"
 import { llmFor } from "./llm.ts"
 import { runMaintenance } from "./maintenance.ts"
-import { type ProcessMessage, processArticles } from "./process.ts"
 import { scheduleDueSources } from "./scheduler.ts"
-import type { StoryEvalParams } from "./story-eval.ts"
 
-export { Digest } from "./digest.ts"
 export { DigestV2 } from "./digest-v2.ts"
-export { StoryEval } from "./story-eval.ts"
 
-/** The v1 digest sends until EDITION.mode is "send"; the v2 one runs beside it in shadow mode until then. */
+/** One digest-v2 instance per edition; its ID makes a duplicate cron fire fail here, and the DB claim covers the rest. */
 const startDigest = async (env: Env, scheduledTime: number, edition: Edition) => {
   const date = new Date(scheduledTime).toISOString().slice(0, 10)
-  const key = editionKey(date, edition)
-  const runs: [string, () => Promise<unknown>][] = [
-    [
-      `digest-v2-${key}`,
-      () =>
-        (env.DIGEST_V2 as Workflow<DigestV2Params>).create({
-          id: `digest-v2-${key}`,
-          params: { date, edition, mode: EDITION.mode },
-        }),
-    ],
-  ]
-  if (EDITION.mode !== "send") {
-    runs.push([
-      `digest-${key}`,
-      () => (env.DIGEST as Workflow<DigestParams>).create({ id: `digest-${key}`, params: { date, edition } }),
-    ])
-  }
-  for (const [id, create] of runs) {
-    try {
-      await create()
-    } catch (e) {
-      // The instance ID is per edition, so a duplicate cron fire fails here; the DB claim covers the rest.
-      console.warn(JSON.stringify({ event: "digest_create_failed", id, error: String(e) }))
-    }
+  const id = `digest-v2-${editionKey(date, edition)}`
+  try {
+    await (env.DIGEST_V2 as Workflow<DigestV2Params>).create({ id, params: { date, edition, mode: EDITION.mode } })
+  } catch (e) {
+    console.warn(JSON.stringify({ event: "digest_create_failed", id, error: String(e) }))
   }
 }
 
 /** sendBatch caps at 100 messages. */
-const enqueueArticles = async (queue: Queue<ProcessMessage | IngestMessage>, ids: number[]) => {
+const enqueueArticles = async (queue: Queue<IngestMessage>, ids: number[]) => {
   for (let i = 0; i < ids.length; i += 100) {
     await queue.sendBatch(ids.slice(i, i + 100).map((articleId) => ({ body: { articleId } })))
   }
@@ -70,7 +46,6 @@ export default {
         await runHourly(env, db, llmFor(env, db), controller.scheduledTime)
         break
       }
-      // DIGEST.editions holds the same hours.
       case "0 6 * * *":
         await startDigest(env, controller.scheduledTime, "morning")
         break
@@ -79,7 +54,7 @@ export default {
         break
       case "30 3 * * *": {
         const db = getDb(env.DB)
-        await runMaintenance(db, llmFor(env, db), env.PROCESS_Q as Queue<ProcessMessage>, controller.scheduledTime)
+        await runMaintenance(db, llmFor(env, db), controller.scheduledTime)
         break
       }
       default:
@@ -102,23 +77,6 @@ export default {
           }
         }
         break
-      case "process-q": {
-        const ids = (batch.messages as readonly Message<ProcessMessage>[]).map((m) => m.body.articleId)
-        try {
-          await processArticles(
-            { AI: env.AI, VECTORS: env.VECTORS, STORY_EVAL: env.STORY_EVAL as Workflow<StoryEvalParams> },
-            db,
-            llmFor(env, db),
-            ids,
-          )
-          batch.ackAll()
-        } catch (e) {
-          // Articles already assigned are skipped on the retry, so one failure doesn't redo the batch.
-          console.error(JSON.stringify({ event: "process_failed", count: ids.length, error: String(e) }))
-          batch.retryAll()
-        }
-        break
-      }
       case "facet-q":
         try {
           const counts = await ingestArticles({ AI: env.AI, GISTS: env.GISTS }, db, llmFor(env, db), Date.now())

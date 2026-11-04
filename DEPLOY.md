@@ -28,13 +28,6 @@ secret token. Both skip quietly when the variables aren't set.
    npx wrangler d1 create digest
    npx wrangler queues create fetch-q
    npx wrangler queues create fetch-dlq
-   npx wrangler queues create process-q
-   npx wrangler queues create process-dlq
-   npx wrangler vectorize create digest-articles --dimensions=1024 --metric=cosine
-   npx wrangler vectorize create-metadata-index digest-articles --property-name=published_at --type=number
-   npx wrangler vectorize create-metadata-index digest-articles --property-name=category --type=string
-   npx wrangler vectorize create-metadata-index digest-articles --property-name=source_id --type=number
-   # v2 (created 3 Nov 2026)
    npx wrangler queues create facet-q
    npx wrangler queues create facet-dlq
    npx wrangler vectorize create digest-gists --dimensions=1024 --metric=cosine
@@ -42,8 +35,8 @@ secret token. Both skip quietly when the variables aren't set.
    ```
 
    The deploy never creates resources; `wrangler deploy` fails on a binding whose queue or index is missing.
-   The three metadata indexes must exist before the first vector is inserted. The `digest` and `story-eval`
-   Workflows are created by the first deploy. `nipatiitti.fi` must be a zone on the same account,
+   The metadata index must exist before the first vector is inserted. The `digest-v2` Workflow is created by the
+   first deploy. `nipatiitti.fi` must be a zone on the same account,
    because the ingress deploy attaches `hooks.dd.nipatiitti.fi` as a custom domain.
 
 2. **Telegram bot**: create it with @BotFather and keep the token. Make a webhook secret with
@@ -73,7 +66,7 @@ secret token. Both skip quietly when the variables aren't set.
    The deploy copies them into runtime secrets and registers the webhook, so there's nothing else to set.
    Without `ANTHROPIC_API_KEY` the pipeline still runs: ingest writes facets from code and clusters by threshold
    alone, and nothing is scored, threaded or extracted. `DAILY_SPEND_CAP_USD` in `apps/pipeline/wrangler.jsonc` caps
-   Claude spend per UTC day: 8 while v1 and v2 run side by side and v2 backfills, 3.33 again after the switch. Ingest
+   Claude spend per UTC day: 8 on the 4 Nov 2026 switch day, then 3.33. Ingest
    facets may run to `FACETS.capMultiplier` times it; the hourly threads, relevance and movers steps skip once the
    day's spend passes the `EVAL.spendSoftCap` share of it. `ANTHROPIC_BASE_URL` can be added as a var later to route through AI Gateway.
 
@@ -99,22 +92,15 @@ secret token. Both skip quietly when the variables aren't set.
 ## Checking it works
 
 - **Polling**: Workers Logs for `digest-pipeline` show a `fetched` line per source as polls come due.
-- **Matching**: a `matched` line per new article with its `storyId` and `how` (`new`, `join`, `copy`, `cve`,
-  `ask-yes`, `ask-no`). `select count(*) from stories` grows; `gate_log` gets an `evidence` row per touched
-  story, and a `story_eval_stub` line appears when one crosses the bar.
 - **Feeds**: `node scripts/smoke-sources.ts --all` fetches every seeded source with the real parser and prints one
   line each (status, items, newest item age). Node 24, or `--experimental-strip-types` on 22.
 - **Digest**: the morning edition arrives at 06:00 UTC and the afternoon one at 15:00 UTC. To try it sooner, trigger
-  the `digest` Workflow (dashboard → Workflows → digest → Trigger, or
-  `npx wrangler workflows trigger digest '{"date":"test-1","edition":"morning"}'`). Use a date other than today's,
-  because each date and edition sends at most once.
-- **v2 ingest**: an `ingest` line per `facet-q` batch with counts by placement (`new`, `join`, `copy`, `ask-yes`,
+  the `digest-v2` Workflow
+  (`npx wrangler workflows trigger digest-v2 '{"date":"test-1","edition":"morning","mode":"shadow"}'`), which writes
+  `digests_shadow` and sends nothing; `/digest/test-1` shows it.
+- **Ingest**: an `ingest` line per `facet-q` batch with counts by placement (`new`, `join`, `copy`, `ask-yes`,
   `ask-no`) and a `placed` line per article. The first deploy finds every stored article un-ingested and drains it
   oldest first, one batch a minute; `/status` shows the backlog. `select count(*) from article_facets` tracks
   `articles`.
-- **v2 editions**: in shadow mode (`EDITION.mode` in `packages/core/src/config.ts`) the crons run `digest-v2` beside
-  the v1 digest and it writes `digests_shadow`; `/digest/<key>` shows the two side by side. To replay past editions
-  once the backlog is in, run `node scripts/replay-editions.ts` (`--from YYYY-MM-DD`, `--dry-run`). Switching to v2
-  is `EDITION.mode = "send"`, which also stops starting the v1 digest and turns alerts on.
 - **Feedback**: tap 👍 on the digest and a `feedback` row appears
   (`npx wrangler d1 execute digest --remote --command "select * from feedback"`).
