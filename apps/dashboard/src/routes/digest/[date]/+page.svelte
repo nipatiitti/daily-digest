@@ -16,11 +16,10 @@ const card = "grid gap-2 rounded-lg border border-line bg-surface p-4 shadow-sm"
   <title>Digest {title}</title>
 </svelte:head>
 
-{#snippet meta(r: { eventId: number | null; sentAt: number; scoreAtSend: number | null; up: number; down: number })}
+{#snippet meta(r: { eventId: number; sentAt: number; up: number; down: number })}
   <p class="dd-body-sm flex flex-wrap gap-x-6 gap-y-1 text-ink-muted">
-    {#if r.eventId !== null}<a href="/events/{r.eventId}" class="dd-tick hover:underline">EVT-{r.eventId}</a>{/if}
+    <a href="/events/{r.eventId}" class="dd-tick hover:underline">EVT-{r.eventId}</a>
     <span class="dd-tick whitespace-nowrap">{fmtTime(r.sentAt)}</span>
-    {#if r.scoreAtSend !== null}<span>Score at send {r.scoreAtSend.toFixed(1)}</span>{/if}
     <span>{fmtInt(r.up)} up, {fmtInt(r.down)} down</span>
   </p>
 {/snippet}
@@ -34,33 +33,25 @@ const card = "grid gap-2 rounded-lg border border-line bg-surface p-4 shadow-sm"
   <svelte:boundary>
     {@const e = await edition(key)}
     <!--
-      The HTML is renderDigestItem's own, as Telegram shows it, rendered live for v1 stories and stored for shadow items:
-      every text is escaped there, and each link is a stored canonical http(s) URL, which the URL parser serializes
-      without quotes.
+      The HTML is what Telegram shows, renderDigestHeader's or renderEmptyDigest's for the header and renderDigestItem's
+      stored with each shadow item. Every text is escaped there, and each link is a stored canonical http(s) URL, which
+      the URL parser serializes without quotes.
     -->
     <div class="grid gap-8 lg:auto-cols-fr lg:grid-flow-col">
       <section class="grid content-start gap-4">
         <h2 class="dd-label">Sent</h2>
-        {#if e.header}
-          <p class="dd-body whitespace-pre-line">{@html e.header}</p>
+        <p class="dd-body whitespace-pre-line">{@html e.header}</p>
+        {#if e.events.length}
           <ol class="grid gap-4">
-            {#each e.stories as r (r.storyId)}
-              <li class={card}>
-                <p class="dd-body whitespace-pre-line [&_a]:underline">{@html r.html}</p>
-                {@render meta({ ...r, eventId: null })}
-              </li>
-            {/each}
-            {#each e.events as r (r.eventId)}
+            {#each e.events as r (`${r.kind}${r.eventId}`)}
               <li class={card}>
                 <p class="dd-body font-semibold">{r.kind === "update" ? "Update: " : ""}{sanitizeUserText(r.headline)}</p>
                 <p class="dd-body">{sanitizeUserText(r.summary)}</p>
                 {#if r.why}<p class="dd-body italic">{sanitizeUserText(r.why)}</p>{/if}
-                {@render meta({ ...r, scoreAtSend: null })}
+                {@render meta(r)}
               </li>
             {/each}
           </ol>
-        {:else}
-          <p class="dd-body text-ink-muted">Nothing went out in this edition.</p>
         {/if}
       </section>
       {#each e.shadow as m (m.mode)}
@@ -89,7 +80,7 @@ const card = "grid gap-2 rounded-lg border border-line bg-surface p-4 shadow-sm"
         </p>
       {:else if e.alerts.length}
         <ul class="grid divide-y divide-line">
-          {#each e.alerts as r (r.key)}
+          {#each e.alerts as r (r.eventId)}
             <li class="grid gap-1 py-2">
               <p class="dd-body-sm"><span class="font-semibold">Alert:</span> {sanitizeUserText(r.headline)}</p>
               {@render meta(r)}

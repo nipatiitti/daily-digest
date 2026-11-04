@@ -1,44 +1,63 @@
-import { and, count, desc, eq, gte, inArray, lt, or, sql } from "drizzle-orm"
+import { and, count, desc, eq, gte, inArray, isNotNull, lt, or, sql } from "drizzle-orm"
 import type { Db } from "../client.ts"
 import {
   deliveries,
+  digests,
   digestsShadow,
   entities,
   events,
   feedback,
   type ProfileFollows,
-  stories,
   threads,
 } from "../schema/index.ts"
 
 const votes = (vote: "up" | "down") => sql<number>`coalesce(sum(${feedback.vote} = ${vote}), 0)`
 
 /**
- * Digest editions keyed in [from, to) (YYYY-MM-DD), newest first: each edition key (editionKey) with digest or update
- * deliveries, its distinct stories or events and its votes over every chat, and the items of each shadow mode written
- * for it, so keys with only shadow or replay rows are listed too. Keys compare as text, so a date's afternoon edition
- * sorts after its morning one and before the next date. `limit` caps both reads.
+ * The v2 editions: those sent at or after the send time of the first edition that sent an event, none before there
+ * is one. An empty edition from then on counts too.
+ */
+const v2Sent = (db: Db) =>
+  and(
+    eq(digests.status, "sent"),
+    gte(
+      digests.sentAt,
+      db
+        .select({ at: sql<number | null>`min(${digests.sentAt})` })
+        .from(digests)
+        .where(
+          inArray(
+            digests.digestDate,
+            db.select({ key: deliveries.digestDate }).from(deliveries).where(isNotNull(deliveries.eventId)),
+          ),
+        ),
+    ),
+  )
+
+/**
+ * The v2 editions keyed in [from, to) (YYYY-MM-DD), newest first, empty ones included: each edition key
+ * (editionKey) with its distinct events sent as digest items or updates and their votes over every chat, and the
+ * items of each shadow mode written for it. Keys compare as text, so a date's afternoon edition sorts after its
+ * morning one and before the next date. `limit` caps both reads.
  */
 export const digestEditions = async (db: Db, from: string, to: string, limit = -1) => {
   const [live, shadow] = await db.batch([
     db
       .select({
-        key: sql<string>`${deliveries.digestDate}`,
-        items: sql<number>`count(distinct coalesce('s' || ${deliveries.storyId}, 'e' || ${deliveries.eventId}))`,
+        key: digests.digestDate,
+        items: sql<number>`count(distinct ${deliveries.eventId})`,
         up: votes("up"),
         down: votes("down"),
       })
-      .from(deliveries)
-      .leftJoin(feedback, eq(feedback.deliveryId, deliveries.id))
-      .where(
-        and(
-          inArray(deliveries.kind, ["digest", "update"]),
-          gte(deliveries.digestDate, from),
-          lt(deliveries.digestDate, to),
-        ),
+      .from(digests)
+      .leftJoin(
+        deliveries,
+        and(eq(deliveries.digestDate, digests.digestDate), inArray(deliveries.kind, ["digest", "update"])),
       )
-      .groupBy(deliveries.digestDate)
-      .orderBy(desc(deliveries.digestDate))
+      .leftJoin(feedback, eq(feedback.deliveryId, deliveries.id))
+      .where(and(v2Sent(db), gte(digests.digestDate, from), lt(digests.digestDate, to)))
+      .groupBy(digests.digestDate)
+      .orderBy(desc(digests.digestDate))
       .limit(limit),
     db
       .select({ key: digestsShadow.editionKey, mode: digestsShadow.mode, items: count() })
@@ -48,47 +67,27 @@ export const digestEditions = async (db: Db, from: string, to: string, limit = -
       .orderBy(desc(digestsShadow.editionKey))
       .limit(limit),
   ])
-  const keys = [...new Set([...live, ...shadow].map((r) => r.key))].toSorted().toReversed()
-  return keys.map((key) => ({
-    key,
-    live: live.find((r) => r.key === key) ?? null,
-    shadow: shadow.filter((r) => r.key === key),
-  }))
+  return live.map((r) => ({ ...r, shadow: shadow.filter((s) => s.key === r.key) }))
 }
 
 /**
- * Edition `key` (editionKey) and the alerts sent in [from, to), in send order, each story or event once per kind with
- * its votes over every chat: v1 rows carry the stored fields a digest item is rendered from, v2 rows the event's copy.
- * Then what the v2 edition would have sent for the key, by mode and rank.
+ * Edition `key` (editionKey) and the alerts sent in [from, to), in send order, each event once per kind with its copy
+ * and its votes over every chat, then what the v2 edition would have sent for the key, by mode and rank. `v2` is
+ * false for a key that is not a v2 edition.
  */
 export const digestDay = async (db: Db, key: string, from: number, to: number) => {
   const sentAt = sql<number>`min(${deliveries.sentAt})`
-  const sent = or(
-    eq(deliveries.digestDate, key),
-    and(eq(deliveries.kind, "alert"), gte(deliveries.sentAt, from), lt(deliveries.sentAt, to)),
-  )
-  const base = { kind: deliveries.kind, sentAt, up: votes("up"), down: votes("down") }
-  const [v1, v2, shadow] = await db.batch([
+  const [edition, sent, shadow] = await db.batch([
+    db
+      .select({ key: digests.digestDate })
+      .from(digests)
+      .where(and(eq(digests.digestDate, key), v2Sent(db))),
     db
       .select({
-        ...base,
-        storyId: stories.id,
-        scoreAtSend: sql<number | null>`max(${deliveries.scoreAtSend})`,
-        category: stories.category,
-        fiRelevance: stories.fiRelevance,
-        title: stories.title,
-        summary: stories.summary,
-        independentOrigins: stories.independentOrigins,
-      })
-      .from(deliveries)
-      .innerJoin(stories, eq(stories.id, deliveries.storyId))
-      .leftJoin(feedback, eq(feedback.deliveryId, deliveries.id))
-      .where(sent)
-      .groupBy(stories.id, deliveries.kind)
-      .orderBy(sentAt),
-    db
-      .select({
-        ...base,
+        kind: deliveries.kind,
+        sentAt,
+        up: votes("up"),
+        down: votes("down"),
         eventId: events.id,
         headline: sql<string>`coalesce(${events.headline}, ${events.title})`,
         summary: sql<string>`coalesce(${events.summary}, ${events.gist})`,
@@ -97,7 +96,12 @@ export const digestDay = async (db: Db, key: string, from: number, to: number) =
       .from(deliveries)
       .innerJoin(events, eq(events.id, deliveries.eventId))
       .leftJoin(feedback, eq(feedback.deliveryId, deliveries.id))
-      .where(sent)
+      .where(
+        or(
+          eq(deliveries.digestDate, key),
+          and(eq(deliveries.kind, "alert"), gte(deliveries.sentAt, from), lt(deliveries.sentAt, to)),
+        ),
+      )
       .groupBy(events.id, deliveries.kind)
       .orderBy(sentAt),
     db
@@ -106,7 +110,7 @@ export const digestDay = async (db: Db, key: string, from: number, to: number) =
       .where(eq(digestsShadow.editionKey, key))
       .orderBy(digestsShadow.mode, digestsShadow.rank),
   ])
-  return { v1, v2, shadow }
+  return { v2: edition.length > 0, sent, shadow }
 }
 
 /** The followed threads and entities that exist, with their names. */

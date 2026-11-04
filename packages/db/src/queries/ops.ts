@@ -21,3 +21,20 @@ export const recordDbStats = (db: Db, row: typeof dbStats.$inferInsert) =>
       target: dbStats.day,
       set: { sizeBytes: row.sizeBytes, rowsJson: row.rowsJson },
     })
+
+export const databaseSize = async (db: Db) => {
+  const [row] = await db.all<{ bytes: number }>(
+    sql`select page_count * page_size as bytes from pragma_page_count(), pragma_page_size()`,
+  )
+  return row?.bytes ?? 0
+}
+
+export const rowCounts = async (db: Db) => {
+  const tables = ["sources", "articles", "events", "threads", "deliveries", "feedback", "llm_calls", "profile_versions"]
+  const out: Record<string, number> = {}
+  for (const t of tables) {
+    const [row] = await db.all<{ n: number }>(sql`select count(*) as n from ${sql.identifier(t)}`)
+    out[t] = row?.n ?? 0
+  }
+  return out
+}

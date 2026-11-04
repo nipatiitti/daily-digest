@@ -22,12 +22,8 @@ const pageNo = $derived(Math.max(1, Math.floor(Number(page.url.searchParams.get(
             <a href="/digest/{e.key}" class="hover:underline">
               <span class="dd-tick">{e.date}</span>{#if e.label}&nbsp;{e.label}{/if}
             </a>
-            {#if e.live}
-              <span>{fmtInt(e.live.items)} {e.live.items === 1 ? "item" : "items"}</span>
-              <span class="text-ink-muted">{fmtInt(e.live.up)} up, {fmtInt(e.live.down)} down</span>
-            {:else}
-              <span class="text-ink-muted">Not sent</span>
-            {/if}
+            <span>{fmtInt(e.items)} {e.items === 1 ? "item" : "items"}</span>
+            <span class="text-ink-muted">{fmtInt(e.up)} up, {fmtInt(e.down)} down</span>
             {#each e.shadow as s (s.mode)}
               <span class="dd-tick">{s.mode} {fmtInt(s.items)}</span>
             {/each}

@@ -2,7 +2,6 @@ import { type AnyColumn, and, desc, eq, gte, inArray, isNull, ne, or, type SQL, 
 import type { Db } from "../client.ts"
 import {
   articleFacets,
-  articles,
   deliveries,
   digestsShadow,
   entities,
@@ -16,7 +15,6 @@ import {
   type ProfileFollows,
   type RollupKind,
   relevance,
-  stories,
   type ThreadStatus,
   threads,
 } from "../schema/index.ts"
@@ -198,24 +196,18 @@ export const readMovers = (db: Db, limit: number) =>
     .orderBy(movers.rank)
     .limit(limit)
 
-/**
- * The digest items of the given editions as sent, one row per item whatever the chats, in send order. A v1 item
- * links to the event holding most of its story's articles.
- */
+/** The digest items of the given editions as sent, one row per event whatever the chats, in send order. */
 export const readEditionItems = (db: Db, keys: string[]) =>
   db
     .select({
       editionKey: sql<string>`${deliveries.digestDate}`,
-      eventId: sql<number | null>`coalesce(${deliveries.eventId}, (select ${eventArticles.eventId}
-        from ${eventArticles} join ${articles} on ${articles.id} = ${eventArticles.articleId}
-        where ${articles.storyId} = ${deliveries.storyId} group by 1 order by count(*) desc limit 1))`,
-      title: sql<string | null>`coalesce(${events.headline}, ${events.title}, ${stories.title})`,
+      eventId: events.id,
+      title: sql<string>`coalesce(${events.headline}, ${events.title})`,
     })
     .from(deliveries)
-    .leftJoin(events, eq(events.id, deliveries.eventId))
-    .leftJoin(stories, eq(stories.id, deliveries.storyId))
+    .innerJoin(events, eq(events.id, deliveries.eventId))
     .where(and(inArray(deliveries.digestDate, keys), eq(deliveries.kind, "digest")))
-    .groupBy(deliveries.digestDate, deliveries.storyId, deliveries.eventId)
+    .groupBy(deliveries.digestDate, events.id)
     .orderBy(sql`min(${deliveries.id})`)
 
 /** What the v2 edition would have sent for the given editions, by edition, mode and rank. */

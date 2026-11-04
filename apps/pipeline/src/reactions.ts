@@ -5,8 +5,8 @@ import { type Llm, proposeProfileEdits } from "@digest/llm"
 const STEP = "reactions"
 
 /**
- * Nightly: the votes cast since the last run, at most REACTIONS.lookbackDays back (every vote on the first run, so
- * it learns from the v1 votes too), become one pending profile proposal. Too few new votes keep the cursor.
+ * Nightly: the votes on events cast since the last run, at most REACTIONS.lookbackDays back (every one on the first
+ * run), become one pending profile proposal. Too few new votes keep the cursor.
  */
 export const reactionsStep = async (db: Db, llm: Llm | null, now: number): Promise<Record<string, number>> => {
   const current = llm ? await currentProfile(db) : null

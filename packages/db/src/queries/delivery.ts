@@ -1,14 +1,6 @@
 import { eq } from "drizzle-orm"
 import type { Db } from "../client.ts"
-import {
-  deliveries,
-  digests,
-  feedback,
-  type RubricSnapshot,
-  stories,
-  telegramUpdates,
-  type Vote,
-} from "../schema/index.ts"
+import { deliveries, digests, feedback, telegramUpdates, type Vote } from "../schema/index.ts"
 
 /** Claim a day's digest. False means another run already has it. */
 export const claimDigest = async (db: Db, digestDate: string) => {
@@ -35,18 +27,11 @@ export const recordDelivery = async (db: Db, row: typeof deliveries.$inferInsert
 export const setDeliveryMessageId = (db: Db, id: number, messageId: number) =>
   db.update(deliveries).set({ messageId }).where(eq(deliveries.id, id))
 
-/** A delivery with its story's score and rubric, for the feedback snapshot. */
+/** A delivery's id and chat, so a vote counts only from the chat it was sent to. */
 export const getDeliveryForFeedback = async (db: Db, id: number) => {
   const [row] = await db
-    .select({
-      id: deliveries.id,
-      chatId: deliveries.chatId,
-      storyId: deliveries.storyId,
-      rubric: stories.rubricJson,
-      score: stories.score,
-    })
+    .select({ id: deliveries.id, chatId: deliveries.chatId })
     .from(deliveries)
-    .leftJoin(stories, eq(stories.id, deliveries.storyId))
     .where(eq(deliveries.id, id))
   return row
 }
@@ -62,25 +47,10 @@ export const markUpdateSeen = async (db: Db, updateId: number) => {
 }
 
 /** One vote per user per delivery; a second tap replaces the first and counts as cast now. */
-export const recordFeedback = (
-  db: Db,
-  v: {
-    deliveryId: number
-    storyId: number | null
-    tgUserId: number
-    vote: Vote
-    rubricSnapshot: RubricSnapshot | null
-  },
-) =>
+export const recordFeedback = (db: Db, v: { deliveryId: number; tgUserId: number; vote: Vote }) =>
   db
     .insert(feedback)
-    .values({
-      deliveryId: v.deliveryId,
-      storyId: v.storyId,
-      tgUserId: v.tgUserId,
-      vote: v.vote,
-      rubricSnapshotJson: v.rubricSnapshot,
-    })
+    .values({ deliveryId: v.deliveryId, tgUserId: v.tgUserId, vote: v.vote })
     .onConflictDoUpdate({
       target: [feedback.deliveryId, feedback.tgUserId],
       set: { vote: v.vote, createdAt: Date.now() },

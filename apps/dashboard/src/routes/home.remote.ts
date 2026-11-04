@@ -88,7 +88,7 @@ export const todaysEditions = query(async () => {
       return {
         key,
         label,
-        sent: sent.flatMap((r) => (r.editionKey === key && r.title ? [{ eventId: r.eventId, title: r.title }] : [])),
+        sent: sent.flatMap((r) => (r.editionKey === key ? [{ eventId: r.eventId, title: r.title }] : [])),
         shadow: mine.filter((r) => r.mode === mode),
       }
     })

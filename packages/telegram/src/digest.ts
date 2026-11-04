@@ -1,4 +1,4 @@
-import { aboutFinland, DIGEST, EDITION_LABEL, parseEditionKey, sanitizeUserText } from "@digest/core"
+import { DIGEST, EDITION_LABEL, parseEditionKey, sanitizeUserText } from "@digest/core"
 import { escapeHtml } from "./html.ts"
 
 const HELSINKI_DATE = new Intl.DateTimeFormat("en-GB", {
@@ -27,7 +27,7 @@ export const renderDigestHeader = (key: string, count: number) =>
 export type ItemLink = { url: string; label: string }
 
 export type DigestItem = {
-  /** Written by code: a thread, countries or an event type, or v1's topic. */
+  /** Written by code: a thread, countries or an event type. */
   tag: string
   headline: string
   summary: string
@@ -74,33 +74,6 @@ export const pickLinks = (list: LinkArticle[]): ItemLink[] => {
     .slice(0, DIGEST.maxLinks)
     .map((a) => ({ url: a.canonicalUrl, label: a.sourceName }))
 }
-
-/** The story fields a digest item is built from. */
-export type ItemStory = {
-  category: "security" | "tech" | "world" | "fi"
-  title: string
-  summary: string | null
-  independentOrigins: number
-  /** With the extraction's entities (storyEntities), the Finland tag reads them besides the title. */
-  primaryEntity?: string | null
-  entities?: string[]
-}
-
-const TAG: Record<ItemStory["category"], string> = { security: "Security", tech: "Tech", world: "World", fi: "Finland" }
-
-/** A stored story as one digest item, links picked from its articles; v1 articles carry no role, none is official. */
-export const storyItem = (s: ItemStory, list: Omit<LinkArticle, "official">[], isUpdate: boolean): DigestItem => ({
-  tag:
-    s.category !== "security" && aboutFinland([s.title, s.primaryEntity, ...(s.entities ?? [])])
-      ? "Finland"
-      : TAG[s.category],
-  headline: s.title,
-  summary: s.summary ?? "",
-  why: null,
-  origins: s.independentOrigins,
-  links: pickLinks(list.map((a) => ({ ...a, official: false }))),
-  isUpdate,
-})
 
 const clean = (s: string) => escapeHtml(sanitizeUserText(s))
 

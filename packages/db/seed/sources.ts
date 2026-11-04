@@ -599,7 +599,7 @@ export const SOURCES: SourceSeed[] = [
     enabled: false,
   },
 
-  // Velocity signals: boost only, never origins. Disabled until the signals table has an
+  // Velocity signals: boost only, never origins. Disabled until velocity signals have their own
   // ingestion path; as sources they would land trending topics in `articles` as if they were news.
   {
     slug: "hn-front-page",

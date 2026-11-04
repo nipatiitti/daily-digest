@@ -28,7 +28,6 @@ import {
   eventThreads,
   relevance,
   type ShadowMode,
-  stories,
   threads,
 } from "../schema/index.ts"
 import { lastRun, markRun } from "./entities.ts"
@@ -184,15 +183,7 @@ export const markShadowEdition = async (db: Db, mode: ShadowMode, key: string, a
 export const previousShadowAsOf = async (db: Db, mode: ShadowMode, before: number) =>
   (await shadowEditions(db, mode, before, 1))[0]?.asOf ?? null
 
-/** For a v1 delivery, the event holding most of its story's articles. */
-const storyEvent = sql<number | null>`(select ${eventArticles.eventId} from ${eventArticles}
-  join ${articles} on ${articles.id} = ${eventArticles.articleId}
-  where ${articles.storyId} = ${deliveries.storyId} group by 1 order by count(*) desc limit 1)`
-
-/**
- * The given events already sent: any delivery, or holding most of a v1-delivered story's articles, for "send"; an
- * earlier shadow edition of the same mode otherwise.
- */
+/** The given events already sent: any delivery for "send", an earlier shadow edition of the same mode otherwise. */
 export const sentEvents = async (db: Db, mode: "send" | ShadowMode, ids: number[], before: number) => {
   if (mode !== "send") {
     const rows = await selectIn(db, ids, 2, (chunk) =>
@@ -205,25 +196,18 @@ export const sentEvents = async (db: Db, mode: "send" | ShadowMode, ids: number[
     )
     return new Set(rows.map((r) => r.id))
   }
-  const [v2, v1] = await Promise.all([
-    selectIn(db, ids, 2, (chunk) =>
-      db.selectDistinct({ id: deliveries.eventId }).from(deliveries).where(inArray(deliveries.eventId, chunk)),
-    ),
-    db
-      .select({ id: storyEvent })
-      .from(deliveries)
-      .where(and(isNotNull(deliveries.storyId), isNull(deliveries.eventId)))
-      .groupBy(deliveries.storyId),
-  ])
-  return new Set([...v2, ...v1].flatMap((r) => (r.id === null ? [] : [r.id])))
+  const rows = await selectIn(db, ids, 2, (chunk) =>
+    db.selectDistinct({ id: deliveries.eventId }).from(deliveries).where(inArray(deliveries.eventId, chunk)),
+  )
+  return new Set(rows.flatMap((r) => (r.id === null ? [] : [r.id])))
 }
 
 const headline = sql<string>`coalesce(${events.headline}, ${events.title})`
 
 /**
  * Items with a thread in the latest `editions` editions of this mode before `before`, newest first, with the event's
- * headline and its independent origins when sent (counted as of the shadow edition for shadow modes). A v1 delivery
- * counts with the primary thread of the event holding most of its story's articles.
+ * headline and its independent origins when sent (counted as of the shadow edition for shadow modes). A delivery
+ * sent without a thread counts with its event's primary thread now.
  */
 export const recentThreadItems = async (
   db: Db,
@@ -240,24 +224,21 @@ export const recentThreadItems = async (
       .limit(editions)
     const rows = await db
       .select({
-        eventId: sql<number | null>`coalesce(${deliveries.eventId}, ${storyEvent})`,
+        eventId: events.id,
         threadId: deliveries.threadId,
-        headline: sql<string>`coalesce(${events.headline}, ${events.title}, ${stories.title}, '')`,
+        headline,
         origins: sql<number>`coalesce(${deliveries.originsAtSend}, 0)`,
       })
       .from(deliveries)
-      .leftJoin(events, eq(events.id, deliveries.eventId))
-      .leftJoin(stories, eq(stories.id, deliveries.storyId))
-      .where(
-        and(inArray(deliveries.digestDate, recent), or(isNotNull(deliveries.eventId), isNotNull(deliveries.storyId))),
-      )
+      .innerJoin(events, eq(events.id, deliveries.eventId))
+      .where(inArray(deliveries.digestDate, recent))
       .orderBy(desc(deliveries.sentAt))
     const primary = await eventThreadLinks(
       db,
-      rows.flatMap((r) => (r.threadId === null && r.eventId !== null ? [r.eventId] : [])),
+      rows.flatMap((r) => (r.threadId === null ? [r.eventId] : [])),
     )
     return rows.flatMap((r) => {
-      const threadId = r.threadId ?? (r.eventId === null ? null : (primary.get(r.eventId)?.[0]?.threadId ?? null))
+      const threadId = r.threadId ?? primary.get(r.eventId)?.[0]?.threadId ?? null
       return threadId === null ? [] : [{ threadId, headline: r.headline, origins: r.origins }]
     })
   }

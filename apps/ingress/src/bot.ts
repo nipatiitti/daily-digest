@@ -1,4 +1,3 @@
-import { CONFIG_VERSION } from "@digest/core"
 import { type Db, getDeliveryForFeedback, markUpdateSeen, recordFeedback } from "@digest/db"
 import { decodeFeedback, isAllowedChat } from "@digest/telegram"
 import { Bot } from "grammy"
@@ -25,15 +24,7 @@ export const createBot = (env: Env, db: Db) => {
 
     const delivery = await getDeliveryForFeedback(db, fb.deliveryId)
     if (!delivery || delivery.chatId !== chatId) return
-    await recordFeedback(db, {
-      deliveryId: delivery.id,
-      storyId: delivery.storyId,
-      tgUserId: ctx.from.id,
-      vote: fb.vote,
-      rubricSnapshot: delivery.storyId
-        ? { configVersion: CONFIG_VERSION, rubric: delivery.rubric, weights: {}, score: delivery.score }
-        : null,
-    })
+    await recordFeedback(db, { deliveryId: delivery.id, tgUserId: ctx.from.id, vote: fb.vote })
   })
 
   bot.catch((err) => console.error(JSON.stringify({ event: "bot_error", error: String(err.error) })))

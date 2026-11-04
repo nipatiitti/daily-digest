@@ -16,7 +16,6 @@ import {
   profileProposals,
   profileVersions,
   sources,
-  stories,
   threads,
 } from "../schema/index.ts"
 
@@ -195,49 +194,28 @@ export const setFollow = async (
 const roles = (from: SQL) => sql<string | null>`(select group_concat(distinct ${sources.role}) ${from})`
 
 /**
- * Votes cast after `since` and up to `until`, oldest first, with what was delivered: the event's copy, thread,
- * countries and member source roles for v2 deliveries, the story and its articles' source roles for v1 ones.
+ * Votes cast after `since` and up to `until` on an event's delivery, oldest first, with what was delivered: the
+ * event's copy, thread, countries and member source roles.
  */
 export const reactionVotes = async (db: Db, since: number, until: number) => {
   const rows = await db
     .select({
       feedbackId: feedback.id,
       vote: feedback.vote,
-      eventId: deliveries.eventId,
-      eventHeadline: sql<string | null>`coalesce(${events.headline}, ${events.title})`,
-      eventSummary: sql<string | null>`coalesce(${events.summary}, ${events.gist})`,
-      countries: events.countriesJson,
+      headline: sql<string>`coalesce(${events.headline}, ${events.title})`,
+      summary: sql<string>`coalesce(${events.summary}, ${events.gist})`,
       threadName: threads.name,
-      storyTitle: stories.title,
-      storySummary: stories.summary,
-      eventRoles: roles(sql`from ${eventArticles} join ${articles} on ${articles.id} = ${eventArticles.articleId}
+      countries: events.countriesJson,
+      roles: roles(sql`from ${eventArticles} join ${articles} on ${articles.id} = ${eventArticles.articleId}
         join ${sources} on ${sources.id} = ${articles.sourceId} where ${eventArticles.eventId} = ${deliveries.eventId}`),
-      storyRoles: roles(sql`from ${articles} join ${sources} on ${sources.id} = ${articles.sourceId}
-        where ${articles.storyId} = ${deliveries.storyId}`),
     })
     .from(feedback)
     .innerJoin(deliveries, eq(deliveries.id, feedback.deliveryId))
-    .leftJoin(events, eq(events.id, deliveries.eventId))
+    .innerJoin(events, eq(events.id, deliveries.eventId))
     .leftJoin(threads, eq(threads.id, deliveries.threadId))
-    .leftJoin(stories, eq(stories.id, deliveries.storyId))
     .where(and(gt(feedback.createdAt, since), lte(feedback.createdAt, until)))
     .orderBy(feedback.id)
-  return rows.flatMap((r) => {
-    const v2 = r.eventId !== null
-    const headline = v2 ? r.eventHeadline : r.storyTitle
-    if (!headline) return []
-    return [
-      {
-        feedbackId: r.feedbackId,
-        vote: r.vote,
-        headline,
-        summary: v2 ? r.eventSummary : r.storySummary,
-        threadName: v2 ? r.threadName : null,
-        countries: v2 ? (r.countries ?? []) : [],
-        sourceRoles: ((v2 ? r.eventRoles : r.storyRoles) ?? "").split(",").filter(Boolean),
-      },
-    ]
-  })
+  return rows.map(({ roles, ...r }) => ({ ...r, sourceRoles: (roles ?? "").split(",").filter(Boolean) }))
 }
 
 /**

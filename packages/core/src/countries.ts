@@ -106,6 +106,3 @@ export const countriesIn = (texts: (string | null | undefined)[]): string[] => {
 export const isCountry = (code: string) => Object.hasOwn(COUNTRIES, code)
 
 export const countryName = (code: string) => (isCountry(code) ? (COUNTRIES[code]?.name ?? code) : code)
-
-/** Finland by the places a story names (its title and extracted entities), never by the model's relevance guess. */
-export const aboutFinland = (texts: (string | null | undefined)[]) => countriesIn(texts).includes("FI")
