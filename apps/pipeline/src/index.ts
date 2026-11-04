@@ -94,7 +94,6 @@ export default {
         for (const msg of batch.messages as readonly Message<FetchMessage>[]) {
           try {
             const newIds = await fetchSource(db, msg.body.sourceId)
-            await enqueueArticles(env.PROCESS_Q as Queue<ProcessMessage>, newIds)
             await enqueueArticles(env.FACET_Q as Queue<IngestMessage>, newIds)
             msg.ack()
           } catch (e) {

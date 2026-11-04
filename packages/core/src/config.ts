@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 24
+export const CONFIG_VERSION = 25
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -365,7 +365,7 @@ export const RANKING = {
 /** The v2 digest edition. */
 export const EDITION = {
   /** "shadow" writes digests_shadow beside the v1 digest; "send" replaces v1 and turns alerts on. */
-  mode: "shadow" as "shadow" | "send",
+  mode: "send" as "shadow" | "send",
   /** Candidates changed since the previous edition, or within this window before the first one. */
   windowHours: 30,
   /** However long ago the previous edition was, candidates reach back at most this far. */
