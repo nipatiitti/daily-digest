@@ -1,7 +1,6 @@
-import { type AnySQLiteColumn, index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
+import { index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
 import { flag } from "./common.ts"
 import { sources } from "./sources.ts"
-import { stories } from "./stories.ts"
 
 export const articles = sqliteTable(
   "articles",
@@ -18,9 +17,6 @@ export const articles = sqliteTable(
     lang: text(),
     publishedAt: integer().notNull(),
     fetchedAt: integer().notNull(),
-    /** The first article of the same origin (wire copy); null when this one is the origin. */
-    originId: integer().references((): AnySQLiteColumn => articles.id),
-    storyId: integer().references(() => stories.id),
     embeddedAt: integer(),
     fulltextR2Key: text("fulltext_r2_key"),
     cveIdsJson: text({ mode: "json" }).$type<string[]>(),
@@ -29,12 +25,7 @@ export const articles = sqliteTable(
     isAggregator: flag(),
     injectionSuspect: flag(),
   },
-  (t) => [
-    unique("articles_source_guid_uq").on(t.sourceId, t.guid),
-    index("articles_story_idx").on(t.storyId),
-    index("articles_published_idx").on(t.publishedAt),
-    index("articles_origin_idx").on(t.originId),
-  ],
+  (t) => [unique("articles_source_guid_uq").on(t.sourceId, t.guid), index("articles_published_idx").on(t.publishedAt)],
 )
 
 export type Article = typeof articles.$inferSelect

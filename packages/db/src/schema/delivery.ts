@@ -1,16 +1,6 @@
-import {
-  type AnySQLiteColumn,
-  index,
-  integer,
-  primaryKey,
-  real,
-  sqliteTable,
-  text,
-  unique,
-} from "drizzle-orm/sqlite-core"
+import { index, integer, primaryKey, real, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
 import { flag, nowMs } from "./common.ts"
 import { events } from "./events.ts"
-import { type Rubric, stories } from "./stories.ts"
 import { threads } from "./threads.ts"
 
 export const DIGEST_STATUSES = ["claimed", "sent", "failed"] as const
@@ -33,8 +23,6 @@ export const deliveries = sqliteTable(
   "deliveries",
   {
     id: integer().primaryKey({ autoIncrement: true }),
-    /** Null for messages without a story, e.g. "Nothing notable today". */
-    storyId: integer().references(() => stories.id),
     /** The v2 event sent, and its thread when it had one; the thread cooldown reads these. */
     eventId: integer().references(() => events.id),
     threadId: integer().references(() => threads.id),
@@ -42,8 +30,6 @@ export const deliveries = sqliteTable(
     digestDate: text().references(() => digests.digestDate),
     chatId: integer().notNull(),
     messageId: integer(),
-    replyToDeliveryId: integer().references((): AnySQLiteColumn => deliveries.id),
-    factIdsJson: text({ mode: "json" }).$type<number[]>(),
     scoreAtSend: real(),
     /** Independent origins when sent; the update gate measures the origin jump from it. Null on older rows. */
     originsAtSend: integer(),
@@ -51,7 +37,6 @@ export const deliveries = sqliteTable(
     silent: flag(),
   },
   (t) => [
-    index("deliveries_story_idx").on(t.storyId),
     index("deliveries_digest_date_idx").on(t.digestDate),
     index("deliveries_sent_at_idx").on(t.sentAt),
     index("deliveries_event_idx").on(t.eventId),
@@ -91,14 +76,6 @@ export const digestsShadow = sqliteTable(
 export const VOTES = ["up", "down"] as const
 export type Vote = (typeof VOTES)[number]
 
-/** What the item was scored with when it was sent. */
-export type RubricSnapshot = {
-  configVersion: number
-  rubric: Rubric | null
-  weights: Record<string, number>
-  score: number | null
-}
-
 export const feedback = sqliteTable(
   "feedback",
   {
@@ -106,14 +83,12 @@ export const feedback = sqliteTable(
     deliveryId: integer()
       .notNull()
       .references(() => deliveries.id),
-    storyId: integer().references(() => stories.id),
     /** Telegram user who tapped; one vote per user per delivery. */
     tgUserId: integer().notNull(),
     vote: text({ enum: VOTES }).notNull(),
-    rubricSnapshotJson: text({ mode: "json" }).$type<RubricSnapshot>(),
     createdAt: nowMs(),
   },
-  (t) => [unique("feedback_delivery_user_uq").on(t.deliveryId, t.tgUserId), index("feedback_story_idx").on(t.storyId)],
+  (t) => [unique("feedback_delivery_user_uq").on(t.deliveryId, t.tgUserId)],
 )
 
 export const telegramUpdates = sqliteTable("telegram_updates", {

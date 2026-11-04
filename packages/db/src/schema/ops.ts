@@ -1,56 +1,16 @@
 import { index, integer, real, sqliteTable, text, unique } from "drizzle-orm/sqlite-core"
-import { articles } from "./articles.ts"
 import { nowMs } from "./common.ts"
 import { events } from "./events.ts"
-import { stories } from "./stories.ts"
 
 /** How the process stage placed an article; the `-fallback` pair is the ask band without a usable LLM. */
 export const MATCH_HOWS = ["new", "join", "copy", "cve", "ask-yes", "ask-no", "join-fallback", "new-fallback"] as const
 export type MatchHow = (typeof MATCH_HOWS)[number]
-
-/** One row per article placement, for calibrating the match thresholds. */
-export const matchLog = sqliteTable(
-  "match_log",
-  {
-    id: integer().primaryKey({ autoIncrement: true }),
-    articleId: integer()
-      .notNull()
-      .references(() => articles.id),
-    storyId: integer().references(() => stories.id),
-    how: text({ enum: MATCH_HOWS }).notNull(),
-    /** Similarity of the best candidate, after the same-source penalty. */
-    cosine: real(),
-    /** Best candidate story considered, even when a new story was started. */
-    candidateStoryId: integer().references(() => stories.id),
-    at: nowMs(),
-  },
-  (t) => [index("match_log_article_idx").on(t.articleId), index("match_log_story_idx").on(t.storyId)],
-)
-
-export type MatchLogRow = typeof matchLog.$inferSelect
 
 export const GATES = ["evidence", "alert", "update", "digest", "follow"] as const
 export type Gate = (typeof GATES)[number]
 
 export const GATE_DECISIONS = ["pass", "fail"] as const
 export type GateDecision = (typeof GATE_DECISIONS)[number]
-
-/** Every gate decision. In shadow mode a pass is logged ("would alert") but not acted on. */
-export const gateLog = sqliteTable(
-  "gate_log",
-  {
-    id: integer().primaryKey({ autoIncrement: true }),
-    storyId: integer()
-      .notNull()
-      .references(() => stories.id),
-    gate: text({ enum: GATES }).notNull(),
-    decision: text({ enum: GATE_DECISIONS }).notNull(),
-    reasonsJson: text({ mode: "json" }).$type<string[]>().notNull(),
-    shadow: integer({ mode: "boolean" }).notNull(),
-    at: nowMs(),
-  },
-  (t) => [index("gate_log_story_idx").on(t.storyId), index("gate_log_at_idx").on(t.at)],
-)
 
 /**
  * Calls a person starts from the dashboard, never the pipeline: the purpose alone tells their `llm_calls` rows apart,
@@ -87,7 +47,6 @@ export const llmCalls = sqliteTable(
     id: integer().primaryKey({ autoIncrement: true }),
     purpose: text({ enum: LLM_PURPOSES }).notNull(),
     model: text().notNull(),
-    storyId: integer().references(() => stories.id),
     eventId: integer().references(() => events.id),
     inputTokens: integer().notNull(),
     outputTokens: integer().notNull(),
@@ -98,43 +57,6 @@ export const llmCalls = sqliteTable(
     at: nowMs(),
   },
   (t) => [index("llm_calls_at_idx").on(t.at), index("llm_calls_purpose_at_idx").on(t.purpose, t.at)],
-)
-
-/** A headline number the brief was given, the one it is compared with and the change in percent (null from 0). */
-export type BriefReadout = {
-  label: string
-  value: number
-  previous: number | null
-  pct: number | null
-  /** What `previous` is, such as "the 24 hours before". */
-  against: string
-}
-
-/** A signal or story among the hour's largest 24 hour swings, as the brief was given it. */
-export type BriefMover = {
-  kind: "theme" | "story"
-  id: number
-  name: string
-  /** The story's stream, or the streams of the signal's stories. */
-  stream: string
-  momentum24h: number
-  articles24h: number
-  /** The signal's story count; null for a story. */
-  stories: number | null
-}
-
-/** The hourly brief on the front page, with the numbers it was written from. */
-export const briefs = sqliteTable(
-  "briefs",
-  {
-    id: integer().primaryKey({ autoIncrement: true }),
-    at: nowMs(),
-    /** One paragraph naming signals and stories only by SIG-0412 and STY-1234 ids. */
-    text: text().notNull(),
-    moversJson: text({ mode: "json" }).$type<{ readouts: BriefReadout[]; movers: BriefMover[] }>().notNull(),
-    llmCallId: integer().references(() => llmCalls.id),
-  },
-  (t) => [index("briefs_at_idx").on(t.at)],
 )
 
 export const ACTION_KINDS = [
