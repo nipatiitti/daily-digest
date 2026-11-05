@@ -1,4 +1,4 @@
-import { EVAL } from "@digest/core"
+import { SPEND } from "@digest/core"
 import type { Db } from "@digest/db"
 import { createLlm, type Llm } from "@digest/llm"
 
@@ -9,13 +9,13 @@ export const llmFor = (env: Env, db: Db) =>
         apiKey: env.ANTHROPIC_API_KEY,
         baseURL: env.ANTHROPIC_BASE_URL,
         db,
-        dailyCapUsd: Number(env.DAILY_SPEND_CAP_USD) || 3.33,
+        monthlyBudgetUsd: Number(env.MONTHLY_BUDGET_USD) || SPEND.monthlyBudgetUsd,
       })
     : null
 
-/** Today's spend and the soft cap once spend reached EVAL.spendSoftCap of the daily cap; null while under it. */
+/** Today's spend and the soft cap once spend reached SPEND.softCapShare of today's allowance; null while under it. */
 export const overSoftCap = async (llm: Llm): Promise<{ spent: number; cap: number } | null> => {
   const spent = await llm.spentToday()
-  const cap = EVAL.spendSoftCap * llm.dailyCapUsd
+  const cap = SPEND.softCapShare * (await llm.allowanceToday())
   return spent >= cap ? { spent, cap } : null
 }

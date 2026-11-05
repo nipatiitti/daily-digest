@@ -82,16 +82,16 @@ scripts/        set-webhook, sync-secrets, smoke-sources, replay-editions
 All apps: the same pinned `compatibility_date`, `nodejs_compat`, observability on, `workers_dev` and `preview_urls`
 off, one D1 `DB` → `digest` with `migrations_dir` → `packages/db/migrations`.
 
-| Binding                                                                 | pipeline                                   | ingress                                         | dashboard                                                                            |
-| ----------------------------------------------------------------------- | ------------------------------------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Crons `* * * * *`, `0 * * * *`, `0 6 * * *`, `0 15 * * *`, `30 3 * * *` | yes                                        |                                                 |                                                                                      |
-| Queue `fetch-q` + `fetch-dlq` (batch 10, concurrency 5)                 | produce + consume                          |                                                 |                                                                                      |
-| Queue `facet-q` + `facet-dlq` (wake-ups, batch 100, concurrency 1)      | produce + consume                          |                                                 |                                                                                      |
-| Workflow `DIGEST_V2`                                                    | yes                                        |                                                 |                                                                                      |
-| Workers AI `AI`                                                         | yes                                        |                                                 | yes (Ask search)                                                                     |
-| Vectorize `GISTS` → `digest-gists`                                      | yes                                        |                                                 | yes (Ask search)                                                                     |
-| Secrets                                                                 | `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`  | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` | `ANTHROPIC_API_KEY`                                                                  |
-| Vars                                                                    | `TELEGRAM_CHAT_IDS`, `DAILY_SPEND_CAP_USD` | `TELEGRAM_CHAT_IDS`                             | `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `DASHBOARD_SPEND_CAP_USD`, `DAILY_SPEND_CAP_USD` |
+| Binding                                                                 | pipeline                                  | ingress                                         | dashboard                                                                           |
+| ----------------------------------------------------------------------- | ----------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Crons `* * * * *`, `0 * * * *`, `0 6 * * *`, `0 15 * * *`, `30 3 * * *` | yes                                       |                                                 |                                                                                     |
+| Queue `fetch-q` + `fetch-dlq` (batch 10, concurrency 5)                 | produce + consume                         |                                                 |                                                                                     |
+| Queue `facet-q` + `facet-dlq` (wake-ups, batch 100, concurrency 1)      | produce + consume                         |                                                 |                                                                                     |
+| Workflow `DIGEST_V2`                                                    | yes                                       |                                                 |                                                                                     |
+| Workers AI `AI`                                                         | yes                                       |                                                 | yes (Ask search)                                                                    |
+| Vectorize `GISTS` → `digest-gists`                                      | yes                                       |                                                 | yes (Ask search)                                                                    |
+| Secrets                                                                 | `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN` | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` | `ANTHROPIC_API_KEY`                                                                 |
+| Vars                                                                    | `TELEGRAM_CHAT_IDS`, `MONTHLY_BUDGET_USD` | `TELEGRAM_CHAT_IDS`                             | `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `DASHBOARD_SPEND_CAP_USD`, `MONTHLY_BUDGET_USD` |
 - Edition idempotency: send mode claims `digests(digest_date)` with `ON CONFLICT DO NOTHING`; shadow and replay
   replace their own `digests_shadow` rows.
 - Queue messages carry IDs only; Workflow steps return small JSON, never vectors or full text.
@@ -107,7 +107,8 @@ off, one D1 `DB` → `digest` with `migrations_dir` → `packages/db/migrations`
 4. `event_articles` is both membership and the placement log for calibrating `CLUSTER`; `pair_decisions` is the
    negative cache for consolidation.
 5. `llm_answers` keeps Ask answers by the SHA-256 of their input; only purpose `ask` counts against
-   `DASHBOARD_SPEND_CAP_USD`, and the pipeline's `DAILY_SPEND_CAP_USD` counts every other purpose.
+   `DASHBOARD_SPEND_CAP_USD` per day; `MONTHLY_BUDGET_USD` holds every purpose, and each day's allowance is what the
+   month has left over the days left (`dailyAllowance` in `core/src/spend.ts`).
 
 Traps:
 - A drizzle-kit table rebuild drops FTS triggers; follow it with a custom migration that recreates them.

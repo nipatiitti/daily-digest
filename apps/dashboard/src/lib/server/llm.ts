@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers"
-import { askPeriod, countryName, DAY_MS, HOME, hourBucket } from "@digest/core"
+import { askPeriod, countryName, DAY_MS, HOME, hourBucket, SPEND } from "@digest/core"
 import { readAskEvents, readAskThreads, readAskThreadsById } from "@digest/db"
 import { askDesk, createLlm, type StreamCall } from "@digest/llm"
 import { nearestEvents } from "./ask.ts"
@@ -11,7 +11,11 @@ export const answerCapUsd = () => Number(env.DASHBOARD_SPEND_CAP_USD) || HOME.sp
 /** Claude for on-demand answers; null until ANTHROPIC_API_KEY is set. */
 export const llm = () =>
   env.ANTHROPIC_API_KEY
-    ? createLlm({ apiKey: env.ANTHROPIC_API_KEY, db: db(), dailyCapUsd: Number(env.DAILY_SPEND_CAP_USD) })
+    ? createLlm({
+        apiKey: env.ANTHROPIC_API_KEY,
+        db: db(),
+        monthlyBudgetUsd: Number(env.MONTHLY_BUDGET_USD) || SPEND.monthlyBudgetUsd,
+      })
     : null
 
 /** The question's distinct words of three letters or more, the first HOME.askTerms. */

@@ -33,7 +33,7 @@
     // Claude spend per UTC day on dashboard answers (llm_calls purpose ask)
     "DASHBOARD_SPEND_CAP_USD": "2",
     // Same value as apps/pipeline; the status page charts spend against it
-    "DAILY_SPEND_CAP_USD": "8"
+    "MONTHLY_BUDGET_USD": "100"
   }
   // Secrets (Workers Builds build variables, copied in by scripts/sync-secrets.ts, never here):
   // ANTHROPIC_API_KEY

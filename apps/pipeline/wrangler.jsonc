@@ -54,9 +54,9 @@
   "vars": {
     // Comma-separated Telegram chat IDs that receive the digest (send /start to the bot to get one)
     "TELEGRAM_CHAT_IDS": "-5529066369",
-    // Claude spend per UTC day before the pipeline degrades (see packages/llm). Still 8 on the switch day, whose
-    // spend v1 had already taken past 3.33.
-    "DAILY_SPEND_CAP_USD": "8"
+    // Claude budget per UTC month over every purpose, shared with the dashboard; each day may spend what is left over
+    // the days left (SPEND in packages/core/src/config.ts).
+    "MONTHLY_BUDGET_USD": "100"
   }
   // Secrets (set in the dashboard, never here): TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY
 }

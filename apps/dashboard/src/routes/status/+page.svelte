@@ -59,10 +59,11 @@ const confirmDisable =
         </p>
       </div>
       <div class="grid content-start gap-2">
-        <h2 class="dd-label">Claude spend today</h2>
+        <h2 class="dd-label">Claude spend</h2>
         <p class="dd-body">
-          Pipeline {usd(s.today.pipeline)} of {usd(s.caps.pipeline)}. Dashboard {usd(s.today.dashboard)} of
-          {usd(s.caps.dashboard)}.
+          Today {usd(s.today.pipeline + s.today.dashboard)} of the day's allowance {usd(s.caps.pipeline)}, of which
+          the dashboard {usd(s.today.dashboard)} of its {usd(s.caps.dashboard)}. This month {usd(s.month.spent)} of
+          {usd(s.month.budget)}.
         </p>
       </div>
     </section>
@@ -95,7 +96,7 @@ const confirmDisable =
           items={s.spend}
           unit=" USD"
           caps={[
-            { label: `Pipeline cap ${usd(s.caps.pipeline)}`, value: s.caps.pipeline },
+            { label: `Today's allowance ${usd(s.caps.pipeline)}`, value: s.caps.pipeline },
             { label: `Dashboard cap ${usd(s.caps.dashboard)}`, value: s.caps.dashboard },
           ]}
         />

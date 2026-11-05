@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod"
+import { dailyAllowance, spendCalendar } from "@digest/core"
 import {
   DASHBOARD_LLM_PURPOSES,
   type Db,
@@ -7,7 +8,7 @@ import {
   type LlmPurpose,
   llmCalls,
   recordLlmCall,
-  spendSince,
+  totalSpendBetween,
 } from "@digest/db"
 import type { z } from "zod"
 import { estimateCostUsd, type ModelId, type Usage } from "./models.ts"
@@ -33,7 +34,8 @@ export type LlmOptions = {
   /** AI Gateway or other proxy; the Anthropic API when unset. */
   baseURL?: string
   db: Db
-  dailyCapUsd: number
+  /** The month's Claude budget over every purpose; each day gets dailyAllowance of what is left. */
+  monthlyBudgetUsd: number
 }
 
 export type StructuredCall<T extends z.ZodType> = {
@@ -45,33 +47,58 @@ export type StructuredCall<T extends z.ZodType> = {
   eventId?: number | null
   maxTokens?: number
   effort?: "low" | "medium" | "high"
-  /** Alert-path calls may run up to this multiple of the cap (brief section 9). */
+  /** Ingest may run up to this multiple of today's allowance, so a backlog keeps draining. */
   capMultiplier?: number
   /** Sends `system` as one cached block, so calls in a run that share it read the prefix from the cache. */
   cacheSystem?: boolean
 }
 
 export type StreamCall = Omit<StructuredCall<z.ZodType>, "schema" | "capMultiplier"> & {
-  /** The day's cap for this call in place of the daily cap, such as DASHBOARD_SPEND_CAP_USD. */
+  /** A dashboard purpose's own daily cap, such as DASHBOARD_SPEND_CAP_USD; the month's budget still holds. */
   capUsd?: number
 }
-
-const startOfUtcDay = (now: number) => now - (now % 86_400_000)
 
 const isDashboard = (p: LlmPurpose) => (DASHBOARD_LLM_PURPOSES as readonly string[]).includes(p)
 
 const systemParam = (c: Pick<StreamCall, "system" | "cacheSystem">) =>
   c.cacheSystem ? [{ type: "text" as const, text: c.system, cache_control: { type: "ephemeral" as const } }] : c.system
 
-/** Claude client with the daily spend cap and `llm_calls` logging around every call. */
+/** Claude client with the monthly budget, today's allowance from it, and `llm_calls` logging around every call. */
 export const createLlm = (o: LlmOptions) => {
   const client = new Anthropic({ apiKey: o.apiKey, baseURL: o.baseURL, maxRetries: 2 })
 
-  /** Dashboard purposes are held to their own spend today, every other call to the whole day's spend. */
-  const checkCap = async (purpose: LlmPurpose, cap: number) => {
-    const since = startOfUtcDay(Date.now())
-    const spent = await (isDashboard(purpose) ? dashboardSpendSince(o.db, since) : spendSince(o.db, since))
-    if (spent >= cap) throw new SpendCapError(`daily spend ${spent.toFixed(2)} USD is at the cap ${cap} USD`)
+  // The month's spend before today does not change during the day, so it is read once per client and UTC day.
+  let ledger: { day: number; remaining: number; allowance: number } | null = null
+  const budget = async () => {
+    const now = Date.now()
+    const { day, month } = spendCalendar(now)
+    if (ledger?.day !== day) {
+      ledger = { day, ...dailyAllowance(o.monthlyBudgetUsd, await totalSpendBetween(o.db, month, day), now) }
+    }
+    return ledger
+  }
+  const spentToday = async () => totalSpendBetween(o.db, (await budget()).day, Number.MAX_SAFE_INTEGER)
+
+  /**
+   * No call once today's spend over every purpose reaches what the month has left. A dashboard purpose is held to its
+   * own cap over its own spend today; every other call to today's allowance times `multiplier`.
+   */
+  const checkCap = async (purpose: LlmPurpose, c: { multiplier?: number; capUsd?: number }) => {
+    const b = await budget()
+    const spent = await spentToday()
+    if (spent >= b.remaining) {
+      throw new SpendCapError(`the month's budget of ${o.monthlyBudgetUsd} USD is used up`)
+    }
+    if (isDashboard(purpose)) {
+      const cap = c.capUsd ?? b.allowance
+      const own = await dashboardSpendSince(o.db, b.day)
+      if (own >= cap) throw new SpendCapError(`dashboard spend ${own.toFixed(2)} USD is at today's cap ${cap} USD`)
+      return
+    }
+    const cap = b.allowance * (c.multiplier ?? 1)
+    if (spent >= cap) {
+      throw new SpendCapError(`spend ${spent.toFixed(2)} USD is at today's allowance ${cap.toFixed(2)} USD`)
+    }
   }
 
   /** Writes the `llm_calls` row for a call and returns its id. */
@@ -93,7 +120,7 @@ export const createLlm = (o: LlmOptions) => {
   const structuredCall = async <T extends z.ZodType>(
     c: StructuredCall<T>,
   ): Promise<{ value: z.infer<T>; callId: number | null }> => {
-    await checkCap(c.purpose, o.dailyCapUsd * (c.capMultiplier ?? 1))
+    await checkCap(c.purpose, { multiplier: c.capMultiplier })
 
     // create, not parse: parse throws on a failed validation before the paid call reaches `llm_calls`.
     const format = zodOutputFormat(c.schema)
@@ -134,7 +161,7 @@ export const createLlm = (o: LlmOptions) => {
    * stream breaks off. Cancelling `stream` aborts the request.
    */
   const stream = async (c: StreamCall) => {
-    await checkCap(c.purpose, c.capUsd ?? o.dailyCapUsd)
+    await checkCap(c.purpose, { capUsd: c.capUsd })
     const s = client.messages.stream({
       model: c.model,
       max_tokens: c.maxTokens ?? 4096,
@@ -181,10 +208,10 @@ export const createLlm = (o: LlmOptions) => {
     return { stream: text, done }
   }
 
-  /** Today's spend so far in USD, for the degradation rules in the brief. */
-  const spentToday = () => spendSince(o.db, startOfUtcDay(Date.now()))
+  /** Today's allowance from the month's budget, in USD. */
+  const allowanceToday = async () => (await budget()).allowance
 
-  return { structured, structuredCall, stream, spentToday, dailyCapUsd: o.dailyCapUsd }
+  return { structured, structuredCall, stream, spentToday, allowanceToday }
 }
 
 export type Llm = ReturnType<typeof createLlm>

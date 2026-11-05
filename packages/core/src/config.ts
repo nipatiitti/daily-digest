@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 28
+export const CONFIG_VERSION = 29
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -15,9 +15,16 @@ export const EMBED = {
   model: "@cf/baai/bge-m3" as const,
 }
 
-export const EVAL = {
-  /** Above this share of the daily cap, the hourly threads, relevance and movers steps skip. */
-  spendSoftCap: 0.8,
+/**
+ * Claude spend. MONTHLY_BUDGET_USD (a Worker var) is the month's budget over every purpose; each UTC day may spend
+ * what the month has left spread over its remaining days (dailyAllowance in spend.ts), never more than maxDailyUsd.
+ */
+export const SPEND = {
+  /** Used when MONTHLY_BUDGET_USD is unset. */
+  monthlyBudgetUsd: 100,
+  maxDailyUsd: 8,
+  /** Above this share of today's allowance, the hourly threads, relevance and movers steps skip. */
+  softCapShare: 0.8,
 }
 
 export const DIGEST = {

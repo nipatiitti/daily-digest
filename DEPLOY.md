@@ -65,10 +65,12 @@ secret token. Both skip quietly when the variables aren't set.
 
    The deploy copies them into runtime secrets and registers the webhook, so there's nothing else to set.
    Without `ANTHROPIC_API_KEY` the pipeline still runs: ingest writes facets from code and clusters by threshold
-   alone, and nothing is scored, threaded or extracted. `DAILY_SPEND_CAP_USD` in `apps/pipeline/wrangler.jsonc` caps
-   Claude spend per UTC day: 8 on the 4 Nov 2026 switch day, then 3.33. Ingest
-   facets may run to `FACETS.capMultiplier` times it; the hourly threads, relevance and movers steps skip once the
-   day's spend passes the `EVAL.spendSoftCap` share of it. `ANTHROPIC_BASE_URL` can be added as a var later to route through AI Gateway.
+   alone, and nothing is scored, threaded or extracted. `MONTHLY_BUDGET_USD` (100, in both `wrangler.jsonc` files) is
+   the Claude budget per UTC month over every purpose. Each day may spend what the month has left spread over the
+   days left, so a cheap day leaves more for the rest of the month, never more than `SPEND.maxDailyUsd`. Ingest
+   facets may run to `FACETS.capMultiplier` times the day's allowance; the hourly threads, relevance and movers steps
+   skip once the day's spend passes the `SPEND.softCapShare` share of it; nothing calls Claude once the month's budget
+   is spent. `ANTHROPIC_BASE_URL` can be added as a var later to route through AI Gateway.
 
 6. **Cloudflare Access for the dashboard** (Zero Trust → Access → Applications → Add → Self-hosted):
    - Application domain `dd.nipatiitti.fi`, with a policy that allows only your email.
@@ -78,7 +80,7 @@ secret token. Both skip quietly when the variables aren't set.
      the team's keys as well and answers 403 on every page and remote call without it, or when either var is
      empty. Static build assets are covered by Access alone.
 
-   The dashboard's other vars: `DAILY_SPEND_CAP_USD` mirrors the pipeline's cap for the status page, and
+   The dashboard's other vars: `MONTHLY_BUDGET_USD` is the same budget, and
    `DASHBOARD_SPEND_CAP_USD` (2) caps Claude spend per UTC day on Ask on the home page (`llm_calls` purpose `ask`,
    the only one that counts against it); an answer over the cap gets a 402. Without the dashboard's
    `ANTHROPIC_API_KEY` Ask answers that Claude is not set up, and stored answers still show. `vite dev` skips the

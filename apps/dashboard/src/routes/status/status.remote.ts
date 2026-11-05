@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers"
-import { DAY_MS, HOUR_MS, hourBucket, STATUS } from "@digest/core"
+import { DAY_MS, dailyAllowance, HOUR_MS, hourBucket, SPEND, STATUS, spendCalendar } from "@digest/core"
 import {
   DASHBOARD_LLM_PURPOSES,
   LLM_PURPOSES,
@@ -7,6 +7,7 @@ import {
   resetSourceBackoff,
   setSourceEnabled,
   statusPage,
+  totalSpendBetween,
 } from "@digest/db"
 import { z } from "zod"
 import type { Stream } from "#lib/charts/scale.ts"
@@ -22,7 +23,8 @@ const DASHBOARD_PURPOSES: readonly string[] = DASHBOARD_LLM_PURPOSES
 const span = (last: number, n: number, step: number) => Array.from({ length: n }, (_, i) => last - (n - 1 - i) * step)
 
 /**
- * The status page: the database reads, with spend charted per UTC day and purpose against both caps, same-event
+ * The status page: the database reads, with spend charted per UTC day and purpose against today's allowance and the
+ * dashboard cap, the month's budget beside it, same-event
  * decisions charted per hour, and the hourly steps and loop writes aged against STATUS.loopStaleHours.
  */
 export const status = query(async () => {
@@ -34,7 +36,13 @@ export const status = query(async () => {
     hours: STATUS.clusterHours,
     editions: STATUS.editions,
   })
-  const caps = { pipeline: Number(env.DAILY_SPEND_CAP_USD), dashboard: answerCapUsd() }
+  const budget = Number(env.MONTHLY_BUDGET_USD) || SPEND.monthlyBudgetUsd
+  const { month } = spendCalendar(now)
+  const [monthBefore, monthTotal] = await Promise.all([
+    totalSpendBetween(db(), month, today),
+    totalSpendBetween(db(), month, now + 1),
+  ])
+  const caps = { pipeline: dailyAllowance(budget, monthBefore, now).allowance, dashboard: answerCapUsd() }
   const purposes = LLM_PURPOSES.filter((p) => s.spend.some((r) => r.purpose === p))
   const usd = new Map(s.spend.map((r) => [`${r.day}/${r.purpose}`, r.usd]))
   const spentToday = (dashboard: boolean) =>
@@ -53,6 +61,7 @@ export const status = query(async () => {
     ...s,
     now,
     caps,
+    month: { budget, spent: monthTotal },
     today: { pipeline: spentToday(false), dashboard: spentToday(true) },
     spend: days.map((day) => ({
       label: fmtDate(day),
