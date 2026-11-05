@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 26
+export const CONFIG_VERSION = 27
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -104,6 +104,11 @@ export const CLUSTER = {
   topK: 20,
   /** How far either side of the article's publish time neighbours may sit, for every topic. */
   windowHours: 168,
+  /**
+   * An article joins only an event first seen at most this long before it, and consolidation merges only events first
+   * seen this close together; a development that runs longer becomes a new event, which its thread links.
+   */
+  maxEventSpanHours: 72,
   /** Two articles from the same source have their distance multiplied by this. */
   sameSourcePenalty: 5,
   /** Added to an event's similarity per entity it shares with the article (places excluded), up to the max. */

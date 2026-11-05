@@ -47,7 +47,6 @@ const card = "grid gap-2 rounded-lg border border-line bg-surface p-4 shadow-sm"
               <li class={card}>
                 <p class="dd-body font-semibold">{r.kind === "update" ? "Update: " : ""}{sanitizeUserText(r.headline)}</p>
                 <p class="dd-body">{sanitizeUserText(r.summary)}</p>
-                {#if r.why}<p class="dd-body italic">{sanitizeUserText(r.why)}</p>{/if}
                 {@render meta(r)}
               </li>
             {/each}

@@ -282,7 +282,6 @@ export const eventCopyRows = async (db: Db, ids: number[]) =>
             id: events.id,
             headline: events.headline,
             summary: events.summary,
-            whyForYou: events.whyForYou,
             copyHash: events.copyHash,
           })
           .from(events)

@@ -34,7 +34,7 @@ ${DATA_RULE}
 
 Pick the items for the edition and return their ids in reading order, the most important first:
 Never pick two candidates about the same event; keep the one with the better title and gist.
-Spread the edition across threads, countries and sources; do not fill it with one development.
+Spread the edition across threads, countries, regions and sources; do not fill it with one development. Pick at most two candidates about the same conflict, country or bloc, and reach for the rest of the world before a third.
 A candidate with sent_last_time belongs to a thread the reader got in a recent edition. Keep it only when the development materially moved since that headline, not when it repeats or adds detail.
 Return at least the minimum and at most the maximum asked, but return fewer than the minimum rather than pad the edition with weak items.`
 
@@ -61,32 +61,29 @@ export const finalCut = async (
   return { ids: [...new Set(value.ids.filter((id) => offered.has(id)))].slice(0, o.max), callId }
 }
 
-export type CopyEvent = { id: number; titles: string[]; gists: string[]; reason: string }
-export type EventCopy = { headline: string; summary: string; whyForYou: string | null }
+export type CopyEvent = { id: number; titles: string[]; gists: string[] }
+export type EventCopy = { headline: string; summary: string }
 
 const copyBlock = (e: CopyEvent) => `<event id="${e.id}">
 ${e.titles.map((t) => `<title>${tagText(t)}</title>`).join("\n")}
 ${e.gists.map((g) => `<gist>${tagText(g)}</gist>`).join("\n")}
-<relevance_reason>${tagText(e.reason)}</relevance_reason>
 </event>`
 
-const COPY = `You write the copy for one edition of a reader's personal news digest. Each event comes with the titles and gists of the reports on it, and why it is relevant to the reader.
+const COPY = `You write the copy for one edition of a reader's personal news digest. Each event comes with the titles and gists of its reports, newest first.
 
 ${DATA_RULE}
 
 For every event write:
 headline: at most 12 words, sentence case, no trailing full stop.
 summary: exactly one sentence of at most 30 words with the concrete facts: who, what, where and the numbers that matter.
-whyForYou: a clause of at most 12 words tying the event to the reader's profile, or null when the relevance is obvious from the headline.
+Both describe the latest development the newest reports give, not how the story began. Never explain why the event matters or why the reader gets it; the reader can judge that.
 Write only what the reports say. ${WRITING_RULE}`
 
 const CopyOut = z.object({
-  items: z.array(
-    z.object({ id: z.number().int(), headline: z.string(), summary: z.string(), whyForYou: z.string().nullable() }),
-  ),
+  items: z.array(z.object({ id: z.number().int(), headline: z.string(), summary: z.string() })),
 })
 
-/** One Sonnet call writes headline, summary and the optional why clause for every event; ids not asked are dropped. */
+/** One Sonnet call writes the headline and summary for every event; ids not asked are dropped. */
 export const writeCopy = async (llm: Llm, profile: Profile, events: CopyEvent[]) => {
   const copy = new Map<number, EventCopy>()
   if (events.length === 0) return copy
@@ -102,11 +99,9 @@ export const writeCopy = async (llm: Llm, profile: Profile, events: CopyEvent[])
   const asked = new Set(events.map((e) => e.id))
   for (const i of items) {
     if (!asked.has(i.id) || copy.has(i.id)) continue
-    const why = i.whyForYou === null ? "" : sanitizeUserText(i.whyForYou)
     copy.set(i.id, {
       headline: sanitizeUserText(i.headline).replace(/\.$/, ""),
       summary: sanitizeUserText(i.summary),
-      whyForYou: why || null,
     })
   }
   return copy

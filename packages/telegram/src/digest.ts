@@ -31,8 +31,6 @@ export type DigestItem = {
   tag: string
   headline: string
   summary: string
-  /** Why the reader gets it, printed after the summary; null when obvious. */
-  why: string | null
   /** Independent origins, counted by code from the database. */
   origins: number
   links: ItemLink[]
@@ -92,13 +90,11 @@ const sourcesLine = (i: DigestItem) => {
   return links.join(", ")
 }
 
-/** One Telegram message per item: tag and headline, one sentence, the why clause in italics, sources. */
+/** One Telegram message per item: tag and headline, one sentence, sources. Never a line on why it matters. */
 export const renderDigestItem = (i: DigestItem) => {
   const lines = [`<b>${i.isUpdate ? "Update: " : ""}${clean(i.tag)}: ${clean(i.headline)}</b>`]
   const summary = firstSentence(sanitizeUserText(i.summary))
   if (summary) lines.push(escapeHtml(summary))
-  const why = i.why === null ? "" : sanitizeUserText(i.why)
-  if (why) lines.push(`<i>${escapeHtml(why)}</i>`)
   lines.push(sourcesLine(i))
   return lines.join("\n")
 }

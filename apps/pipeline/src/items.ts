@@ -6,7 +6,6 @@ import {
   eventCopyRows,
   eventMembers,
   eventThreadLinks,
-  latestRelevance,
   type Profile,
   runBatch,
   updateEvent,
@@ -17,10 +16,11 @@ import { log } from "./util.ts"
 
 export type EventItem = { text: string; headline: string; threadId: number | null; origins: number }
 
-/** Distinct values, origins first, at most EDITION.copyReports. */
+/** Distinct values, newest first and origins before copies, at most EDITION.copyReports. */
 const reports = (own: EventMember[], pick: (m: EventMember) => string) => {
-  const origins = own.filter((m) => m.originArticleId === null)
-  return [...new Set([...origins, ...own].map(pick))].slice(0, EDITION.copyReports)
+  const newest = own.toSorted((a, b) => b.publishedAt - a.publishedAt)
+  const origins = newest.filter((m) => m.originArticleId === null)
+  return [...new Set([...origins, ...newest].map(pick))].slice(0, EDITION.copyReports)
 }
 
 const sentenceCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
@@ -29,8 +29,8 @@ const sentenceCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
  * Digest items for events as of `asOf`, rendered for Telegram. Copy is reused while `events.copy_hash` matches the
  * member article set; the stale ones get one Sonnet call between them, and without an LLM, or capped or refused, the
  * item falls back to the lead report's title and gist. New copy is stored on the event only with `persist` (a replay
- * leaves the live copy alone). Sonnet's why clause starts from `reasons`, else the latest relevance reason. The tag is
- * code's: the primary thread when it is active, else the first countries, else the event type. Links are origin
+ * leaves the live copy alone). Sonnet sees the newest reports first, so the copy follows the latest development. The
+ * tag is code's: the primary thread when it is active, else the first countries, else the event type. Links are origin
  * members, official sources first.
  */
 export const buildEventItems = async (
@@ -39,15 +39,13 @@ export const buildEventItems = async (
   profile: Profile,
   eventIds: number[],
   asOf: number,
-  o: { persist: boolean; reasons?: Map<number, string> },
+  o: { persist: boolean },
 ): Promise<Map<number, EventItem>> => {
-  const [members, stored, threads, scores] = await Promise.all([
+  const [members, stored, threads] = await Promise.all([
     eventMembers(db, eventIds, asOf),
     eventCopyRows(db, eventIds),
     eventThreadLinks(db, eventIds),
-    o.reasons ? null : latestRelevance(db, eventIds),
   ])
-  const reason = (id: number) => o.reasons?.get(id) ?? scores?.get(id)?.reason ?? ""
   const byId = byEvent(members)
   const events = eventIds.flatMap((id) => {
     const own = byId.get(id) ?? []
@@ -59,7 +57,7 @@ export const buildEventItems = async (
   for (const e of events) {
     const row = stored.get(e.id)
     if (row?.copyHash !== e.hash || !row.headline || !row.summary) continue
-    copy.set(e.id, { headline: row.headline, summary: row.summary, whyForYou: row.whyForYou })
+    copy.set(e.id, { headline: row.headline, summary: row.summary })
   }
   const stale = events.filter((e) => !copy.has(e.id))
   if (llm && stale.length > 0) {
@@ -71,7 +69,6 @@ export const buildEventItems = async (
           id: e.id,
           titles: reports(e.own, (m) => m.titleEn),
           gists: reports(e.own, (m) => m.gist),
-          reason: reason(e.id),
         })),
       )
       if (o.persist) {
@@ -90,7 +87,7 @@ export const buildEventItems = async (
 
   const out = new Map<number, EventItem>()
   for (const { id, own, counters } of events) {
-    const c = copy.get(id) ?? { headline: counters.title, summary: counters.gist, whyForYou: null }
+    const c = copy.get(id) ?? { headline: counters.title, summary: counters.gist }
     const thread = threads.get(id)?.[0]
     const countries = counters.countriesJson.slice(0, EDITION.tagCountries).map(countryName)
     const tag =
@@ -115,7 +112,6 @@ export const buildEventItems = async (
       tag,
       headline: c.headline,
       summary: c.summary,
-      why: c.whyForYou,
       origins: counters.independentOrigins,
       links,
       isUpdate: false,

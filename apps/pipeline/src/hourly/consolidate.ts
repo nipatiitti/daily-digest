@@ -38,7 +38,7 @@ const repoint = async (db: Db, now: number) => {
 /**
  * Fold together events ingest kept apart. Active events first seen within CONSOLIDATE.recentHours and updated since
  * the last full run, at most maxEventsPerRun newest updated first, look up the articles nearest their centroid; the
- * active events those sit in, of any age, are compared by centroid. From askCosine a copy (mergeCosine, or titles at
+ * active events those sit in, first seen within CLUSTER.maxEventSpanHours of the event, are compared by centroid. From askCosine a copy (mergeCosine, or titles at
  * CLUSTER.copyTitleJaccard) merges outright and the rest merge after Haiku says they are one event, highest cosine
  * first. Every decision goes to `pair_decisions` and no pair is decided twice. The younger event folds into the
  * older, and merges chain within a run. A run that left pairs undecided keeps the previous mark, so they come back.
@@ -73,6 +73,7 @@ export const consolidateStep = async (env: { GISTS: VectorizeIndex }, db: Db, ll
     for (const id of ids) {
       const o = events.get(owners.get(id) ?? Number.NaN)
       if (!o || o.id === e.id || pairs.has(pairKey(e.id, o.id))) continue
+      if (Math.abs(o.firstSeen - e.firstSeen) > CLUSTER.maxEventSpanHours * HOUR_MS) continue
       const c = cosine(e.centroid, o.centroid)
       // A shared title needs the cosine too: recurring headlines name distinct events.
       if (c < CONSOLIDATE.askCosine) continue

@@ -91,7 +91,6 @@ export const digestDay = async (db: Db, key: string, from: number, to: number) =
         eventId: events.id,
         headline: sql<string>`coalesce(${events.headline}, ${events.title})`,
         summary: sql<string>`coalesce(${events.summary}, ${events.gist})`,
-        why: events.whyForYou,
       })
       .from(deliveries)
       .innerJoin(events, eq(events.id, deliveries.eventId))

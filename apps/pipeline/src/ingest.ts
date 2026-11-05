@@ -126,7 +126,10 @@ const keysOf = (es: FacetEntity[], outlets: Set<string>) =>
     return key && !outlets.has(key) ? [key] : []
   })
 
-/** Gist neighbours within the window plus same-run articles, each with the event it sits in now. */
+/**
+ * Gist neighbours within the window plus same-run articles, each with the event it sits in now, leaving out events
+ * first seen more than CLUSTER.maxEventSpanHours before the article.
+ */
 const neighbours = async (db: Db, index: VectorizeIndex, item: Item, done: Done[], outlets: Set<string>) => {
   const windowMs = CLUSTER.windowHours * HOUR_MS
   const res = await index.query(item.vector, {
@@ -157,7 +160,11 @@ const neighbours = async (db: Db, index: VectorizeIndex, item: Item, done: Done[
       keys: keysOf(d.item.f.entitiesJson, outlets),
     })
   }
-  return near
+  const oldest = item.publishedAt - CLUSTER.maxEventSpanHours * HOUR_MS
+  const started = new Map(
+    (await eventRows(db, [...new Set(near.map((n) => n.eventId))])).map((e) => [e.id, e.firstSeen]),
+  )
+  return near.filter((n) => (started.get(n.eventId) ?? item.publishedAt) >= oldest)
 }
 
 const place = async (

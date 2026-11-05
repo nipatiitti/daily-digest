@@ -61,7 +61,9 @@ type Selected = { eventId: number; score: number; relevance: number; reason: str
 /**
  * Substantial, unsent events counted as of `asOf`, with a member placed since the previous edition of this mode
  * (fetched since, for a replay): the previous sent edition's start for "send", the previous run's asOf otherwise.
- * Never further back than EDITION.maxLookbackHours.
+ * Never further back than EDITION.maxLookbackHours. An event also needs a member published since then: `recent`
+ * counts those alone, and its title and gist are what the cut sees, so an event ranks by what is new, not by its
+ * whole history.
  */
 const loadCandidates = async (db: Db, mode: Mode, asOf: number) => {
   const previous = mode === "send" ? await previousSentStart(db) : await previousShadowAsOf(db, mode, asOf)
@@ -72,8 +74,10 @@ const loadCandidates = async (db: Db, mode: Mode, asOf: number) => {
   const rows = changed.flatMap((id) => {
     const own = byId.get(id) ?? []
     const counters = sent.has(id) ? null : eventCounters(own)
-    if (!counters || !isSubstantial(counters)) return []
-    return [{ id, ...counters, sources: [...new Set(own.map((m) => m.sourceName))] }]
+    const recent = eventCounters(own.filter((m) => m.publishedAt >= since))
+    if (!counters || !recent || !isSubstantial(counters)) return []
+    const { title, gist } = recent
+    return [{ id, ...counters, title, gist, recent, sources: [...new Set(own.map((m) => m.sourceName))] }]
   })
   return { since, changed: changed.length, sent: sent.size, rows }
 }
@@ -137,7 +141,7 @@ const select = async (
           thread ? (votes.threads.get(thread.threadId) ?? 0) : 0,
           ...own.entities.map((e) => votes.entities.get(e.entityId) ?? 0),
         )
-        const score = rankScore(rel.score, importance(r), freshness(r.lastArticleAt, asOf), votePenalty(worst))
+        const score = rankScore(rel.score, importance(r.recent), freshness(r.lastArticleAt, asOf), votePenalty(worst))
         return [{ r, rel, thread, score }]
       }
       return []
@@ -252,7 +256,7 @@ export class DigestV2 extends WorkflowEntrypoint<Env, DigestV2Params> {
         current.profile,
         selected.map((s) => s.eventId),
         asOf,
-        { persist: mode !== "replay", reasons: new Map(selected.map((s) => [s.eventId, s.reason])) },
+        { persist: mode !== "replay" },
       )
       return selected.flatMap((s) => {
         const item = built.get(s.eventId)
