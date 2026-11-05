@@ -3,9 +3,13 @@ import { HOUR_MS } from "./rollup.ts"
 
 const saturate = (x: number, half: number) => Math.max(0, x) / (Math.max(0, x) + half)
 
-/** 0 to 1 from independent origins, outlet diversity and velocity, plus a bonus for an official source. */
+/**
+ * 0 to 1 from independent origins, their home countries (breadth), outlet diversity and velocity, plus a bonus for
+ * an official source.
+ */
 export const importance = (e: {
   independentOrigins: number
+  sourceCountries: number
   uniqueSources: number
   officialCount: number
   origins6h: number
@@ -13,6 +17,7 @@ export const importance = (e: {
   const { weights: w } = RANKING
   const base =
     w.origins * saturate(e.independentOrigins, RANKING.originsHalf) +
+    w.countries * saturate(e.sourceCountries, RANKING.countriesHalf) +
     w.sources * saturate(e.uniqueSources, RANKING.sourcesHalf) +
     w.velocity * saturate(e.origins6h, RANKING.velocityHalf)
   return Math.min(1, base + (e.officialCount > 0 ? RANKING.officialBonus : 0))

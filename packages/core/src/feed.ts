@@ -25,6 +25,31 @@ const xml = new XMLParser({
 
 type Node = unknown
 
+/** Soft hyphens and zero-width characters, which split one headline into several strings for dedupe and matching. */
+const INVISIBLE = /[\u00ad\u200b-\u200d\u2060\ufeff]/g
+
+export const stripInvisible = (s: string) => s.replace(INVISIBLE, "")
+
+/** A decoder for the label, or UTF-8 when TextDecoder rejects it. */
+const decoderFor = (label: string | undefined) => {
+  try {
+    return new TextDecoder(label?.trim() || "utf-8", { fatal: false, ignoreBOM: false })
+  } catch {
+    return new TextDecoder("utf-8", { fatal: false, ignoreBOM: false })
+  }
+}
+
+/**
+ * A feed body decoded from its bytes: the charset of the Content-Type header, else the XML declaration's encoding
+ * (sniffed from the first bytes as latin1), else UTF-8.
+ */
+export const decodeFeed = (bytes: Uint8Array, contentType: string | null) => {
+  const header = contentType?.match(/charset\s*=\s*["']?([^"';\s]+)/i)?.[1]
+  const prolog = header ? undefined : String.fromCharCode(...bytes.subarray(0, 200))
+  const declared = prolog?.match(/^\s*<\?xml[^>]*\bencoding\s*=\s*["']([^"']+)["']/i)?.[1]
+  return decoderFor(header ?? declared).decode(bytes)
+}
+
 const text = (v: Node): string | null => {
   if (v === null || v === undefined) return null
   if (Array.isArray(v)) return text(v[0])
@@ -83,8 +108,8 @@ const complete = (items: Partial<FeedItem>[]): FeedItem[] =>
           {
             guid: i.guid,
             url: i.url,
-            title: i.title,
-            summary: i.summary ?? null,
+            title: stripInvisible(i.title),
+            summary: i.summary ? stripInvisible(i.summary) : null,
             categories: i.categories ?? [],
             publishedAt: i.publishedAt ?? null,
           },
@@ -210,6 +235,7 @@ export const toSnippet = (html: string | null, max: number) => {
     .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
     .replace(/<[^>]+>/g, " ")
     .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, decodeEntity)
+    .replace(INVISIBLE, "")
     .replace(/\s+/g, " ")
     .trim()
   if (!plain) return null

@@ -25,6 +25,7 @@ const memberChunk = (db: Db, ids: number[], asOf?: number) =>
       sourceId: articles.sourceId,
       sourceName: sources.name,
       sourceRole: sources.role,
+      sourceCountry: sources.country,
       tier: sources.tier,
       domain: articles.domain,
       canonicalUrl: articles.canonicalUrl,

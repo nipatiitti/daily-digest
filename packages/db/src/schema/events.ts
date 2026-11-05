@@ -80,13 +80,13 @@ export const events = sqliteTable(
     firstSeen: integer().notNull(),
     lastArticleAt: integer().notNull(),
     articleCount: integer().notNull().default(0),
-    /** Articles that are not wire copies of another member. */
+    /** Distinct outlets among the independent origins (not wire copies, roundups, promotions or aggregators). */
     independentOrigins: integer().notNull().default(0),
     /** Distinct sources among the members: outlet diversity. */
     uniqueSources: integer().notNull().default(0),
     /** Distinct sources with role `official` among the members. */
     officialCount: integer().notNull().default(0),
-    /** Origins published in the 6 hours up to the latest article: velocity. */
+    /** Outlets with an independent origin in the 6 hours up to the latest article: velocity. */
     origins6h: integer("origins_6h").notNull().default(0),
     /** Every origin comes from a source with role `advisory` or is flagged an advisory. */
     advisoryOnly: flag(),

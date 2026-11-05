@@ -1,9 +1,9 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 27
+export const CONFIG_VERSION = 28
 
 export const FETCH = {
   timeoutMs: 15_000,
-  userAgent: "daily-digest/0.1 (+https://dd.nipatiitti.fi)",
+  userAgent: "Mozilla/5.0 (compatible; daily-digest/0.1; +https://dd.nipatiitti.fi)",
   /** Items older than this are dropped at fetch time, so a new feed doesn't backfill its archive. */
   maxItemAgeDays: 14,
   snippetChars: 500,
@@ -118,7 +118,7 @@ export const CLUSTER = {
   briefTitles: 5,
 }
 
-/** An event worth scoring and sending: enough independent origins, or one official source. */
+/** An event worth scoring and sending: independent origins from enough outlets, or one official source. */
 export const SUBSTANTIAL = {
   minOrigins: 2,
   minOfficial: 1,
@@ -194,7 +194,7 @@ export const REACTIONS = {
 export const ALERTS = {
   /** Candidates had an article this recently. */
   lookbackHours: 2,
-  /** Without an official source among its members, an event needs this many origins published in the last hour. */
+  /** Without an official source among its members, an event needs origins from this many outlets in the last hour. */
   minOrigins1h: 4,
   /** No second alert on the same followed thread or entity within this. */
   cooldownHours: 24,
@@ -251,14 +251,18 @@ export const RELEVANCE = {
 
 /** Ranking in code: relevance / 100 x importance x freshness x vote penalty. */
 export const RANKING = {
-  /** Importance parts saturate as x / (x + half): origins, distinct sources and origins in the last velocityHours. */
+  /**
+   * Importance parts saturate as x / (x + half): independent origin outlets, their distinct home countries, distinct
+   * sources, and origin outlets in the last velocityHours.
+   */
   originsHalf: 3,
+  countriesHalf: 2,
   sourcesHalf: 3,
   velocityHalf: 2,
   /** Origins published this long before an event's latest article count as its velocity. */
   velocityHours: 6,
   /** Weights of those parts (sum 1), and the bonus for an official source; importance is capped at 1. */
-  weights: { origins: 0.5, sources: 0.3, velocity: 0.2 },
+  weights: { origins: 0.4, countries: 0.25, sources: 0.15, velocity: 0.2 },
   officialBonus: 0.2,
   freshnessHalfLifeHours: 18,
   /** Each net downvote on the event's thread or an entity takes this off, down to the floor; the worst one counts. */

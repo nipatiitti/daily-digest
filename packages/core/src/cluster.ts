@@ -37,6 +37,8 @@ type CounterMember<T extends string> = {
   originArticleId: number | null
   sourceId: number
   sourceRole: string
+  /** The outlet's home country; null for an international outlet. */
+  sourceCountry: string | null
   publishedAt: number
   titleEn: string
   gist: string
@@ -50,9 +52,17 @@ type CounterMember<T extends string> = {
 /** Reporting of its own: not a roundup, not promotional, not from an aggregator. */
 const independent = (m: CounterMember<string>) => !m.roundup && !m.promotional && m.sourceRole !== "aggregator"
 
+/** Distinct outlets among the members. */
+const outlets = (ms: CounterMember<string>[]) => new Set(ms.map((m) => m.sourceId)).size
+
+/** Distinct home countries among the members' outlets; an outlet without one counts as its own unknown. */
+const outletCountries = (ms: CounterMember<string>[]) =>
+  new Set(ms.map((m) => m.sourceCountry ?? `source:${m.sourceId}`)).size
+
 /**
- * An event's counters, title and gist from its members, earliest published first; null without members. Only
- * independent origins count toward `independentOrigins` and `origins6h`.
+ * An event's counters, title and gist from its members, earliest published first; null without members.
+ * `independentOrigins`, `origins6h` and `sourceCountries` count outlets among the independent origins, not articles,
+ * so one prolific outlet or its several updates look like one report.
  */
 export const eventCounters = <T extends string>(members: CounterMember<T>[]) => {
   const first = members[0]
@@ -67,10 +77,11 @@ export const eventCounters = <T extends string>(members: CounterMember<T>[]) => 
     firstSeen: first.publishedAt,
     lastArticleAt: last.publishedAt,
     articleCount: members.length,
-    independentOrigins: counted.length,
-    uniqueSources: new Set(members.map((m) => m.sourceId)).size,
+    independentOrigins: outlets(counted),
+    uniqueSources: outlets(members),
+    sourceCountries: outletCountries(counted),
     officialCount: new Set(members.filter((m) => m.sourceRole === "official").map((m) => m.sourceId)).size,
-    origins6h: counted.filter((m) => m.publishedAt >= last.publishedAt - RANKING.velocityHours * HOUR_MS).length,
+    origins6h: outlets(counted.filter((m) => m.publishedAt >= last.publishedAt - RANKING.velocityHours * HOUR_MS)),
     advisoryOnly: origins.length > 0 && origins.every((m) => m.sourceRole === "advisory" || m.advisory),
     countriesJson: byFrequency(members.flatMap((m) => m.countries)),
     eventType: byFrequency(members.map((m) => m.eventType))[0] ?? lead.eventType,

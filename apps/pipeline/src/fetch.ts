@@ -1,4 +1,13 @@
-import { canonicalUrl, domainOf, FETCH, type FeedItem, matchesFilter, parserFor, toSnippet } from "@digest/core"
+import {
+  canonicalUrl,
+  decodeFeed,
+  domainOf,
+  FETCH,
+  type FeedItem,
+  matchesFilter,
+  parserFor,
+  toSnippet,
+} from "@digest/core"
 import { type Db, getSource, insertArticles, type NewArticle, recordPoll, type Source } from "@digest/db"
 
 export type FetchMessage = { sourceId: number }
@@ -66,7 +75,7 @@ export const fetchSource = async (db: Db, sourceId: number, now = Date.now()): P
 
   let items: FeedItem[]
   try {
-    items = parse(await res.text())
+    items = parse(decodeFeed(new Uint8Array(await res.arrayBuffer()), res.headers.get("content-type")))
   } catch (e) {
     log("parse_error", source, { error: String(e) })
     await recordPoll(db, source.id, now, { status: 0, newItems: 0 })

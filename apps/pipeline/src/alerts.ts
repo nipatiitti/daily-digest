@@ -57,7 +57,9 @@ export const alertsStep = async (
   const cooled = new Set((await followedLinks(db, follows, { eventIds: recent })).map(key))
   const qualifies = (id: number) => {
     const own = members.filter((m) => m.eventId === id)
-    const origins1h = own.filter((m) => m.originArticleId === null && m.publishedAt >= now - HOUR_MS).length
+    const origins1h = new Set(
+      own.filter((m) => m.originArticleId === null && m.publishedAt >= now - HOUR_MS).map((m) => m.sourceId),
+    ).size
     return own.some((m) => m.sourceRole === "official") || origins1h >= ALERTS.minOrigins1h
   }
 

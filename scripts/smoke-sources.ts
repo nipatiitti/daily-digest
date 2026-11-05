@@ -2,7 +2,7 @@
 // HTTP status, items parsed, items kept by the filter, newest item age, or the error.
 //   node scripts/smoke-sources.ts            enabled sources
 //   node scripts/smoke-sources.ts --all      every source, including disabled ones
-import { FETCH, matchesFilter, parserFor } from "../packages/core/src/index.ts"
+import { decodeFeed, FETCH, matchesFilter, parserFor } from "../packages/core/src/index.ts"
 import { SOURCES } from "../packages/db/seed/sources.ts"
 
 const all = process.argv.includes("--all")
@@ -21,7 +21,7 @@ const check = async (s: (typeof SOURCES)[number]) => {
       },
       signal: AbortSignal.timeout(FETCH.timeoutMs),
     })
-    const body = await res.text()
+    const body = decodeFeed(new Uint8Array(await res.arrayBuffer()), res.headers.get("content-type"))
     if (!res.ok) return `${s.slug}: HTTP ${res.status} (${res.headers.get("content-type") ?? "?"})`
     const items = parse(body)
     const kept = items.filter((i) => matchesFilter(i, s.filterJson ?? null))
