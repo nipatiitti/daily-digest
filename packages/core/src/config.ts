@@ -223,12 +223,24 @@ export const HOME = {
   /** Threads, entities and countries listed as related, most shared events first. */
   related: 12,
   deliveries: 50,
-  /** Words of a question searched, threads and events read for it, and how recent an event must be. */
+  /**
+   * Ask: the question's gist neighbours (Vectorize allows 100 without metadata) published within its period, grouped
+   * into their events. An event scores its best neighbour's similarity plus up to `askSupportWeight` for the others,
+   * saturating as x / (x + askSupportHalf) over their summed similarity; the top `askEvents` are read.
+   */
+  askTopK: 100,
+  askSupportWeight: 0.1,
+  askSupportHalf: 1,
+  askEvents: 20,
+  /** Words of a question searched in thread names and descriptions, and threads found that way on top of the events'. */
   askTerms: 16,
-  askThreads: 8,
-  askEvents: 40,
-  askEventsShown: 15,
-  askDays: 7,
+  askThreads: 4,
+  /** The period without a phrase naming one, the furthest any phrase reaches back, and how many "a few days" are. */
+  askDays: 30,
+  askMaxDays: 120,
+  askFew: 3,
+  /** Outlets named per event in the timeline under an answer. */
+  askTimelineSources: 3,
   questionMaxChars: 500,
   answerMaxTokens: 1024,
   /** Claude spend per UTC day on answers when DASHBOARD_SPEND_CAP_USD is unset. */

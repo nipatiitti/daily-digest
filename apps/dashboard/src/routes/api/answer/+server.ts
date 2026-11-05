@@ -31,10 +31,15 @@ const sha256 = async (s: string) =>
 export const POST: RequestHandler = async ({ request }) => {
   const body = Body.safeParse(await request.json().catch(() => null))
   if (!body.success) return plain(400, "Send a question as JSON.")
-  const call = await askCall(body.data.question)
+  let call: Awaited<ReturnType<typeof askCall>>
+  try {
+    call = await askCall(body.data.question)
+  } catch (e) {
+    return plain(502, `The search failed: ${e instanceof Error ? e.message : String(e)}`)
+  }
 
   const d = db()
-  // The prompt carries the question, so the hash covers it.
+  // The prompt carries the question and everything the search found for it, so the hash covers them.
   const input = [call.model, call.system, call.prompt, call.maxTokens, call.effort]
   const key = {
     purpose: "ask",

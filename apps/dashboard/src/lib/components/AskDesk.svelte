@@ -1,5 +1,6 @@
 <script lang="ts">
 import { HOME, sanitizeUserText } from "@digest/core"
+import AskTimeline from "./AskTimeline.svelte"
 import Button from "./Button.svelte"
 
 /** Answer text cut at its THR-12 and EVT-345 ids, padded or not, each id with the page it links to. */
@@ -16,11 +17,17 @@ const refSegments = (text: string) => {
   return out
 }
 
+/** The EVT ids a finished answer cites, each once, at most HOME.askEvents. */
+const citedEvents = (text: string) =>
+  [...new Set(Array.from(text.matchAll(/\bEVT-0*(\d+)\b/g), (m) => Number(m[1])))].slice(0, HOME.askEvents)
+
 let question = $state("")
 let text = $state("")
 let error = $state<string | null>(null)
 let cached = $state(false)
 let running = $state(false)
+/** Set once the answer is complete, so the timeline is read once per answer. */
+let cited = $state<number[]>([])
 
 /** The stored answer comes back at once, a new one streams in as Claude writes it. */
 const ask = async (submit: SubmitEvent) => {
@@ -30,6 +37,7 @@ const ask = async (submit: SubmitEvent) => {
   text = ""
   error = null
   cached = false
+  cited = []
   try {
     const res = await fetch("/api/answer", {
       method: "POST",
@@ -43,6 +51,7 @@ const ask = async (submit: SubmitEvent) => {
     cached = res.headers.get("x-answer-cached") === "1"
     const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
     for (let r = await reader.read(); !r.done; r = await reader.read()) text += r.value
+    cited = citedEvents(text)
   } catch (e) {
     error = e instanceof Error ? e.message : String(e)
   } finally {
@@ -61,7 +70,7 @@ const ask = async (submit: SubmitEvent) => {
         type="text"
         bind:value={question}
         maxlength={HOME.questionMaxChars}
-        placeholder="What moved in the peace talks this week?"
+        placeholder="How did the peace talks develop this week?"
         class="min-w-0 flex-1 bg-transparent text-[15px] text-ink outline-none placeholder:text-ink-subtle"
       />
     </label>
@@ -86,4 +95,15 @@ const ask = async (submit: SubmitEvent) => {
       </p>
     {/if}
   </div>
+  {#if cited.length}
+    <svelte:boundary>
+      <AskTimeline ids={cited} />
+      {#snippet pending()}
+        <p class="dd-label">Loading the timeline</p>
+      {/snippet}
+      {#snippet failed()}
+        <p class="dd-label text-ink-muted">Could not load the timeline</p>
+      {/snippet}
+    </svelte:boundary>
+  {/if}
 </div>

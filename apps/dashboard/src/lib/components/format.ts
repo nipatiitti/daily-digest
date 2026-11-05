@@ -7,6 +7,11 @@ export const fmtDate = (ms: number) => {
   return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`
 }
 
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+/** Weekday, day and short month in UTC: "Tue 3 Nov". */
+export const fmtDay = (ms: number) => `${WEEKDAYS[new Date(ms).getUTCDay()]} ${fmtDate(ms)}`
+
 /** "06:12Z" when `ms` falls on the same UTC day as `now`, else "26 Oct 06:12Z". */
 export const fmtTime = (ms: number, now = Date.now()) => {
   const d = new Date(ms)

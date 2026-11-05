@@ -21,7 +21,7 @@ import {
 import { rollupBuckets } from "./rollups.ts"
 
 /** Threads the reader pages show; provisional ones only behind the list's toggle. */
-const SHOWN: ThreadStatus[] = ["active", "closed"]
+export const SHOWN_THREADS: ThreadStatus[] = ["active", "closed"]
 
 /** Conditions on `events`: linked to a thread, to an entity, or naming a country (`value`), matching `c`. */
 const inThreads = (c: SQL) => sql`${events.id} in (select ${eventThreads.eventId} from ${eventThreads} where ${c})`
@@ -92,7 +92,7 @@ export const readRelated = async (db: Db, where: SQL, limit: number) => {
       .select({ id: threads.id, name: threads.name })
       .from(eventThreads)
       .innerJoin(threads, eq(threads.id, eventThreads.threadId))
-      .where(and(inArray(eventThreads.eventId, ids), inArray(threads.status, SHOWN)))
+      .where(and(inArray(eventThreads.eventId, ids), inArray(threads.status, SHOWN_THREADS)))
       .groupBy(threads.id)
       .orderBy(desc(n))
       .limit(limit),
@@ -252,7 +252,7 @@ export const readEvent = async (db: Db, id: number, deliveryLimit: number) => {
       .select({ id: threads.id, name: threads.name })
       .from(eventThreads)
       .innerJoin(threads, eq(threads.id, eventThreads.threadId))
-      .where(and(eq(eventThreads.eventId, id), inArray(threads.status, SHOWN)))
+      .where(and(eq(eventThreads.eventId, id), inArray(threads.status, SHOWN_THREADS)))
       .orderBy(desc(eventThreads.confidence)),
     db
       .select({ score: relevance.score, reason: relevance.reason, profileVersion: relevance.profileVersion })
@@ -280,43 +280,4 @@ export const readEvent = async (db: Db, id: number, deliveryLimit: number) => {
     flags: { opinion: !!flags?.opinion, roundup: !!flags?.roundup, promotional: !!flags?.promotional },
     deliveries: sent,
   }
-}
-
-/**
- * Shown threads and recent events whose text holds any of `words`, the most words matched first, then the newest.
- * Each word binds two parameters per query, so keep `words` under 40.
- */
-export const readAskHits = (db: Db, words: string[], o: { since: number; threads: number; events: number }) => {
-  const matching = (text: SQL) => {
-    const likes = words.map((w) => sql`(${text} like ${`%${w}%`})`)
-    return { any: likes.length ? or(...likes) : undefined, n: likes.length ? sql.join(likes, sql` + `) : sql`0` }
-  }
-  const t = matching(sql`(${threads.name} || ' ' || ${threads.description})`)
-  const e = matching(sql`(coalesce(${events.headline}, '') || ' ' || ${events.title} || ' ' || ${events.gist})`)
-  return Promise.all([
-    db
-      .select({
-        id: threads.id,
-        name: threads.name,
-        description: threads.description,
-        momentum24h: threads.momentum24h,
-        momentum7d: threads.momentum7d,
-      })
-      .from(threads)
-      .where(and(inArray(threads.status, SHOWN), t.any))
-      .orderBy(desc(t.n), desc(threads.lastSeen))
-      .limit(o.threads),
-    db
-      .select({
-        id: events.id,
-        title: sql<string>`coalesce(${events.headline}, ${events.title})`,
-        gist: events.gist,
-        independentOrigins: events.independentOrigins,
-        officialCount: events.officialCount,
-      })
-      .from(events)
-      .where(and(ne(events.status, "merged"), gte(events.lastArticleAt, o.since), e.any))
-      .orderBy(desc(e.n), desc(events.lastArticleAt))
-      .limit(o.events),
-  ])
 }

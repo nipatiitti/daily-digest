@@ -22,6 +22,10 @@
       "remote": true
     }
   ],
+  // The Ask box embeds the question with the pipeline's model (EMBED.model) and searches the gist index it writes
+  // (bge-m3, 1024-d, cosine, vector id = article id, metadata index published_at). Both are remote in `vite dev` too.
+  "ai": { "binding": "AI", "remote": true },
+  "vectorize": [{ "binding": "GISTS", "index_name": "digest-gists", "remote": true }],
   "vars": {
     // Cloudflare Access team domain and the dashboard application's AUD tag (Zero Trust, Access, Applications)
     "ACCESS_TEAM_DOMAIN": "nipatiitti.cloudflareaccess.com",
