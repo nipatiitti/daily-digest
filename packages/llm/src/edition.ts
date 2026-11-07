@@ -3,114 +3,61 @@ import type { Profile } from "@digest/db"
 import { z } from "zod"
 import type { Llm } from "./client.ts"
 import { MODELS } from "./models.ts"
-import { tagText } from "./prompt.ts"
-import { countryList, DATA_RULE, profileText, WRITING_RULE } from "./relevance.ts"
+import { DATA_RULE, profileText, tagText, WRITING_RULE } from "./prompt.ts"
 
-export type CutCandidate = {
+export type CopyItem = {
+  /** The item's lead event. */
   id: number
-  title: string
-  gist: string
-  threadName: string | null
-  countries: string[]
-  sources: string[]
-  relevance: number
-  reason: string
-  /** Independent outlets reporting it since the previous edition. */
-  outlets: number
-  /** Candidates with the same number tell one running story. */
-  storyline: number
-  cooledThread: { lastSentHeadline: string } | null
+  titles: string[]
+  gists: string[]
+  story: { name: string; description: string } | null
+  /** What the reader was last told about the story; null when never. */
+  lastBrief: { headline: string; summary: string } | null
 }
+export type ItemCopy = { headline: string; summary: string; skip: boolean }
 
-const candidateBlock = (c: CutCandidate) => `<candidate id="${c.id}">
-<title>${tagText(c.title)}</title>
-<gist>${tagText(c.gist)}</gist>
-<thread>${tagText(c.threadName ?? "none")}</thread>
-<storyline>${c.storyline}</storyline>
-<countries>${countryList(c.countries)}</countries>
-<sources>${tagText(c.sources.join(", "))}</sources>
-<outlets>${c.outlets}</outlets>
-<relevance>${c.relevance}</relevance>
-<reason>${tagText(c.reason)}</reason>${c.cooledThread ? `\n<sent_last_time>${tagText(c.cooledThread.lastSentHeadline)}</sent_last_time>` : ""}
-</candidate>`
-
-const CUT = `You make the final cut for one edition of a reader's personal news digest. The candidates come ranked by relevance to the reader's profile, importance and freshness, already spread across running stories.
-
-Each candidate has a storyline number: candidates with the same number tell one running story, such as one conflict or one negotiation, even when their threads differ. Outlets counts the independent outlets that reported it since the last edition.
-
-${DATA_RULE}
-
-Pick the items for the edition and return their ids in reading order, the most important first:
-Never pick two candidates about the same event; keep the one with the better title and gist.
-Spread the edition across storylines, countries, regions and sources; do not fill it with one development. Pick at most two candidates from one storyline, and at most two about the same conflict, country or bloc; reach for the rest of the world before a third.
-An incremental update to a running story, a statement, a warning or a claim, is worth less than a decision, a turning point or news from elsewhere the reader has not seen.
-A candidate with sent_last_time belongs to a thread the reader got in a recent edition. Keep it only when the development materially moved since that headline, not when it repeats or adds detail.
-Return at least the minimum and at most the maximum asked, but return fewer than the minimum rather than pad the edition with weak items.`
-
-const CutOut = z.object({ ids: z.array(z.number().int()) })
-
-/** Haiku picks the edition from the ranked candidates, in reading order; unknown and repeated ids are dropped. */
-export const finalCut = async (
-  llm: Llm,
-  profile: Profile,
-  candidates: CutCandidate[],
-  o: { min: number; max: number },
-) => {
-  if (candidates.length === 0) return { ids: [], callId: null }
-  const { value, callId } = await llm.structuredCall({
-    purpose: "edition_cut",
-    model: MODELS.haiku,
-    system: `${CUT}\n\n${profileText(profile)}`,
-    prompt: `${candidates.map(candidateBlock).join("\n\n")}\n\nPick between ${o.min} and ${o.max} items.`,
-    schema: CutOut,
-    maxTokens: 1024,
-    effort: "medium",
-  })
-  const offered = new Set(candidates.map((c) => c.id))
-  return { ids: [...new Set(value.ids.filter((id) => offered.has(id)))].slice(0, o.max), callId }
-}
-
-export type CopyEvent = { id: number; titles: string[]; gists: string[] }
-export type EventCopy = { headline: string; summary: string }
-
-const copyBlock = (e: CopyEvent) => `<event id="${e.id}">
-${e.titles.map((t) => `<title>${tagText(t)}</title>`).join("\n")}
+const copyBlock = (e: CopyItem) => `<item id="${e.id}">
+${e.story ? `<story>${tagText(e.story.name)}: ${tagText(e.story.description)}</story>\n` : ""}${
+  e.lastBrief ? `<last_brief>${tagText(e.lastBrief.headline)}. ${tagText(e.lastBrief.summary)}</last_brief>\n` : ""
+}${e.titles.map((t) => `<title>${tagText(t)}</title>`).join("\n")}
 ${e.gists.map((g) => `<gist>${tagText(g)}</gist>`).join("\n")}
-</event>`
+</item>`
 
-const COPY = `You write the copy for one edition of a reader's personal news digest. Each event comes with the titles and gists of its reports, newest first.
+const COPY = `You write the copy for one edition of a reader's personal news digest. Each item comes with the titles and gists of its reports, newest first. An item that is part of a running story names it, and when the reader got an item on that story before, last_brief is what they were told.
 
 ${DATA_RULE}
 
-For every event write:
+For every item write:
 headline: at most 12 words, sentence case, no trailing full stop.
 summary: exactly one sentence of at most 30 words with the concrete facts: who, what, where and the numbers that matter.
-Both describe the latest development the newest reports give, not how the story began. Never explain why the event matters or why the reader gets it; the reader can judge that.
+Both describe the latest development the newest reports give, not how the story began. With a last_brief, write only what changed since it; never repeat what it already said. Never explain why the item matters or why the reader gets it; the reader can judge that.
+skip: true when the reports add nothing that changed since the last_brief, or say only talk: statements, threats, warnings, plans, proposals, claims, predictions, analysis or opinion, talks announced or said to go well. Still write the copy. Otherwise false.
 Write only what the reports say. ${WRITING_RULE}`
 
 const CopyOut = z.object({
-  items: z.array(z.object({ id: z.number().int(), headline: z.string(), summary: z.string() })),
+  items: z.array(z.object({ id: z.number().int(), headline: z.string(), summary: z.string(), skip: z.boolean() })),
 })
 
-/** One Sonnet call writes the headline and summary for every event; ids not asked are dropped. */
-export const writeCopy = async (llm: Llm, profile: Profile, events: CopyEvent[]) => {
-  const copy = new Map<number, EventCopy>()
-  if (events.length === 0) return copy
-  const { items } = await llm.structured({
+/** One Sonnet call writes the headline and summary for every item, and may skip one as talk; ids not asked are dropped. */
+export const writeCopy = async (llm: Llm, profile: Profile, items: CopyItem[]) => {
+  const copy = new Map<number, ItemCopy>()
+  if (items.length === 0) return copy
+  const { items: out } = await llm.structured({
     purpose: "edition_copy",
     model: MODELS.sonnet,
     system: `${COPY}\n\n${profileText(profile)}`,
-    prompt: `${events.map(copyBlock).join("\n\n")}\n\nWrite the copy for every event by its id.`,
+    prompt: `${items.map(copyBlock).join("\n\n")}\n\nWrite the copy for every item by its id.`,
     schema: CopyOut,
-    maxTokens: 512 + 160 * events.length,
+    maxTokens: 512 + 160 * items.length,
     effort: "medium",
   })
-  const asked = new Set(events.map((e) => e.id))
-  for (const i of items) {
+  const asked = new Set(items.map((e) => e.id))
+  for (const i of out) {
     if (!asked.has(i.id) || copy.has(i.id)) continue
     copy.set(i.id, {
       headline: sanitizeUserText(i.headline).replace(/\.$/, ""),
       summary: sanitizeUserText(i.summary),
+      skip: i.skip,
     })
   }
   return copy

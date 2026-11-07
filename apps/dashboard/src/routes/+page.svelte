@@ -111,7 +111,7 @@ const today = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeZone: "U
           <h3 class="dd-heading"><a href="/digest/{ed.key}" class="hover:underline">{ed.label}</a></h3>
           <div class="grid gap-6 md:grid-cols-2">
             {@render items("As sent", ed.sent)}
-            {#if ed.shadow.length}{@render items("Shadow", ed.shadow)}{/if}
+            {#if ed.replay.length}{@render items("Replay", ed.replay)}{/if}
           </div>
         </article>
       {:else}

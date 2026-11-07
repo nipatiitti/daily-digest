@@ -2,6 +2,7 @@ import { DAY_MS, isSubstantial, nearestThreads, pickThreadCandidates, THREADS, w
 import {
   createThread,
   type Db,
+  eventThreadLinks,
   joinableThreads,
   linkEventThread,
   type ThreadingEvent,
@@ -48,20 +49,28 @@ const eligibleEvents = async (db: Db, now: number) => {
 /**
  * Candidates are threads sharing entities with the event plus the joinable threads nearest its centroid. Haiku joins
  * one or proposes a thread; Sonnet creates the proposal or merges it into a near thread. An event that fails stays
- * unthreaded and is offered again next run.
+ * unthreaded and is offered again next run. Hourly the eligible events under the spend soft cap; the edition passes
+ * its candidates, of which those with no thread are sorted.
  */
-const sortEvents = async (db: Db, llm: Llm | null, now: number) => {
+export const sortEvents = async (db: Db, llm: Llm | null, now: number, o: { eventIds?: number[] } = {}) => {
   if (!llm) {
     log("threads_skipped", { reason: "no ANTHROPIC_API_KEY" })
     return { skipped: 1 }
   }
-  const over = await overSoftCap(llm)
+  const over = o.eventIds ? null : await overSoftCap(llm)
   if (over) {
     log("threads_skipped", over)
     return { skipped: 1 }
   }
 
-  const events = await threadingEvents(db, await eligibleEvents(db, now), THREADS.entitiesPerEvent)
+  const ids = o.eventIds
+    ? await (async (given: number[]) => {
+        const linked = await eventThreadLinks(db, given)
+        return given.filter((id) => !linked.has(id))
+      })(o.eventIds)
+    : await eligibleEvents(db, now)
+  if (ids.length === 0) return { events: 0 }
+  const events = await threadingEvents(db, ids, THREADS.entitiesPerEvent)
   const closedSince = now - THREADS.reopenDays * DAY_MS
   const live = new Map((events.length ? await joinableThreads(db, closedSince) : []).map((t) => [t.id, t]))
   const tally: Record<How, number> = { join: 0, new: 0, merge: 0, error: 0 }

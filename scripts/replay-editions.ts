@@ -1,10 +1,12 @@
 // Replays the sent editions through the v2 digest workflow, oldest first, each as of its send time, into
-// digests_shadow (mode "replay"). Each instance finishes before the next starts, so cooldown and already-sent see the
-// earlier replays. Prints one line per edition: key, item count and the headlines.
-//   node scripts/replay-editions.ts                     every sent edition
-//   node scripts/replay-editions.ts --from 2026-10-28   editions from that UTC date on
-//   node scripts/replay-editions.ts --dry-run           list them without triggering anything
+// edition_items and edition_judgments with mode "replay". Each instance finishes before the next starts, so the
+// last briefs and already-sent see the earlier replays. Prints one line per edition: key, item count and headlines.
+//   node scripts/replay-editions.ts                       every sent edition
+//   node scripts/replay-editions.ts --from 2026-10-28     editions from that UTC date on
+//   node scripts/replay-editions.ts --profile v3.json     interest marked against that profile (a Profile as JSON)
+//   node scripts/replay-editions.ts --dry-run             list them without triggering anything
 import { execFileSync } from "node:child_process"
+import { readFileSync } from "node:fs"
 import { setTimeout as sleep } from "node:timers/promises"
 import { parseEditionKey } from "../packages/core/src/index.ts"
 
@@ -19,6 +21,8 @@ const i = process.argv.indexOf("--from")
 const from = i === -1 ? null : (process.argv[i + 1] ?? "")
 if (from !== null && !/^\d{4}-\d{2}-\d{2}$/.test(from)) throw new Error("--from takes a date, YYYY-MM-DD")
 const dryRun = process.argv.includes("--dry-run")
+const p = process.argv.indexOf("--profile")
+const profile = p === -1 ? undefined : (JSON.parse(readFileSync(process.argv[p + 1] ?? "", "utf8")) as unknown)
 
 const sql = `select digest_date as key, sent_at as sentAt from digests where status = 'sent' and sent_at is not null
   ${from ? `and digest_date >= '${from}'` : ""} order by sent_at`
@@ -51,7 +55,7 @@ for (const { key, sentAt } of editions) {
     continue
   }
   const id = `digest-v2-replay-${key}-${Date.now()}`
-  const params = JSON.stringify({ ...edition, mode: "replay", asOf: sentAt })
+  const params = JSON.stringify({ ...edition, mode: "replay", asOf: sentAt, profile })
   wrangler("workflows", "trigger", "digest-v2", params, "--id", id)
   let instance: Instance
   do {

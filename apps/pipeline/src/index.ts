@@ -1,4 +1,4 @@
-import { EDITION, type Edition, editionKey, FACETS } from "@digest/core"
+import { type Edition, editionKey, FACETS } from "@digest/core"
 import { getDb } from "@digest/db"
 import type { DigestV2Params } from "./digest-v2.ts"
 import { type FetchMessage, fetchSource } from "./fetch.ts"
@@ -15,7 +15,7 @@ const startDigest = async (env: Env, scheduledTime: number, edition: Edition) =>
   const date = new Date(scheduledTime).toISOString().slice(0, 10)
   const id = `digest-v2-${editionKey(date, edition)}`
   try {
-    await (env.DIGEST_V2 as Workflow<DigestV2Params>).create({ id, params: { date, edition, mode: EDITION.mode } })
+    await (env.DIGEST_V2 as Workflow<DigestV2Params>).create({ id, params: { date, edition, mode: "send" } })
   } catch (e) {
     console.warn(JSON.stringify({ event: "digest_create_failed", id, error: String(e) }))
   }
@@ -46,10 +46,11 @@ export default {
         await runHourly(env, db, llmFor(env, db), controller.scheduledTime)
         break
       }
-      case "0 6 * * *":
+      // Twenty past, so the hourly threads, stories, coding and interest have run on the hour's events.
+      case "20 6 * * *":
         await startDigest(env, controller.scheduledTime, "morning")
         break
-      case "0 15 * * *":
+      case "20 15 * * *":
         await startDigest(env, controller.scheduledTime, "afternoon")
         break
       case "30 3 * * *": {

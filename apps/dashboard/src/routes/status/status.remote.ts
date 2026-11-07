@@ -81,7 +81,7 @@ export const status = query(async () => {
     loop: [
       ...s.runs.map((r) => loopRow(r.step, r.lastRunAt, r.detailJson)),
       loopRow("Newest movers bucket", s.lag.movers),
-      loopRow("Newest relevance score", s.lag.relevance),
+      loopRow("Newest event code", s.lag.coding),
       loopRow("Newest event placement", s.lag.placed),
     ],
   }

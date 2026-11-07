@@ -15,7 +15,7 @@ import {
   readEditionItems,
   readFollowedSince,
   readMovers,
-  readShadowItems,
+  readReplayItems,
   readSparks,
 } from "@digest/db"
 import { z } from "zod"
@@ -71,7 +71,7 @@ export const topMovers = query(async () => {
   }))
 })
 
-/** Today's editions as sent, each with the v2 edition beside it: the live shadow run, else a replay. */
+/** Today's editions as sent, each with its replay beside it when there is one. */
 export const todaysEditions = query(async () => {
   const d = db()
   const date = new Date().toISOString().slice(0, 10)
@@ -80,17 +80,10 @@ export const todaysEditions = query(async () => {
     label: EDITION_LABEL[e],
   }))
   const keys = editions.map((e) => e.key)
-  const [sent, shadow] = await Promise.all([readEditionItems(d, keys), readShadowItems(d, keys)])
+  const [sent, replay] = await Promise.all([readEditionItems(d, keys), readReplayItems(d, keys)])
+  const of = (rows: { editionKey: string; eventId: number; title: string }[], key: string) =>
+    rows.flatMap((r) => (r.editionKey === key ? [{ eventId: r.eventId, title: r.title }] : []))
   return editions
-    .map(({ key, label }) => {
-      const mine = shadow.filter((r) => r.editionKey === key)
-      const mode = mine.some((r) => r.mode === "shadow") ? "shadow" : "replay"
-      return {
-        key,
-        label,
-        sent: sent.flatMap((r) => (r.editionKey === key ? [{ eventId: r.eventId, title: r.title }] : [])),
-        shadow: mine.filter((r) => r.mode === mode),
-      }
-    })
-    .filter((e) => e.sent.length || e.shadow.length)
+    .map(({ key, label }) => ({ key, label, sent: of(sent, key), replay: of(replay, key) }))
+    .filter((e) => e.sent.length || e.replay.length)
 })

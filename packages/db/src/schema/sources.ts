@@ -9,7 +9,7 @@ export type SourceKind = (typeof SOURCE_KINDS)[number]
 export const TIERS = ["A", "B", "C", "D"] as const
 export type Tier = (typeof TIERS)[number]
 
-/** What the outlet is, for ranking: advisory feeds reach the digest only through profile relevance. */
+/** What the outlet is, for ranking: advisory feeds count toward advisoryOnly. */
 export const SOURCE_ROLES = ["news", "official", "advisory", "blog", "aggregator"] as const
 export type SourceRole = (typeof SOURCE_ROLES)[number]
 

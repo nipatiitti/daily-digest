@@ -3,18 +3,19 @@ import type { Db } from "../client.ts"
 import {
   articleFacets,
   deliveries,
-  digestsShadow,
+  editionItems,
   entities,
   eventArticles,
+  eventCodes,
   eventEntities,
   events,
   eventThreads,
   feedback,
+  interest,
   type MoverKind,
   movers,
   type ProfileFollows,
   type RollupKind,
-  relevance,
   stories,
   type ThreadStatus,
   threads,
@@ -50,11 +51,12 @@ const followedEvents = (f: ProfileFollows) => {
   return any.length ? or(...any) : undefined
 }
 
-/** The latest relevance row of the event in the current row, by profile version. */
-const latest = sql`from ${relevance} where ${relevance.eventId} = ${events.id}
-  order by ${relevance.profileVersion} desc limit 1`
+/** The latest interest row of the event in the current row, by profile version. */
+const latest = sql`from ${interest} where ${interest.eventId} = ${events.id}
+  order by ${interest.profileVersion} desc limit 1`
+const coded = sql`from ${eventCodes} where ${eventCodes.eventId} = ${events.id}`
 
-/** Unmerged events matching `where`, newest first, with the latest relevance score and reason. */
+/** Unmerged events matching `where`, newest first, with their significance and reason, and the latest interest. */
 export const readEvents = (db: Db, where: SQL | undefined, limit: number) =>
   db
     .select({
@@ -66,8 +68,9 @@ export const readEvents = (db: Db, where: SQL | undefined, limit: number) =>
       independentOrigins: events.independentOrigins,
       officialCount: events.officialCount,
       countries: events.countriesJson,
-      score: sql<number | null>`(select ${relevance.score} ${latest})`,
-      reason: sql<string | null>`(select ${relevance.reason} ${latest})`,
+      significance: sql<number | null>`(select ${eventCodes.significance} ${coded})`,
+      reason: sql<string | null>`(select ${eventCodes.reason} ${coded})`,
+      interest: sql<number | null>`(select ${interest.level} ${latest})`,
     })
     .from(events)
     .where(and(ne(events.status, "merged"), where))
@@ -237,21 +240,19 @@ export const readEditionItems = (db: Db, keys: string[]) =>
     .groupBy(deliveries.digestDate, events.id)
     .orderBy(sql`min(${deliveries.id})`)
 
-/** What the v2 edition would have sent for the given editions, by edition, mode and rank. */
-export const readShadowItems = (db: Db, keys: string[]) =>
+/** The replayed items of the given editions, by edition and rank. */
+export const readReplayItems = (db: Db, keys: string[]) =>
   db
     .select({
-      editionKey: digestsShadow.editionKey,
-      mode: digestsShadow.mode,
-      eventId: digestsShadow.eventId,
-      title: sql<string>`coalesce(${events.headline}, ${events.title})`,
+      editionKey: editionItems.editionKey,
+      eventId: editionItems.leadEventId,
+      title: editionItems.headline,
     })
-    .from(digestsShadow)
-    .innerJoin(events, eq(events.id, digestsShadow.eventId))
-    .where(inArray(digestsShadow.editionKey, keys))
-    .orderBy(digestsShadow.editionKey, digestsShadow.mode, digestsShadow.rank)
+    .from(editionItems)
+    .where(and(eq(editionItems.mode, "replay"), inArray(editionItems.editionKey, keys)))
+    .orderBy(editionItems.editionKey, editionItems.rank)
 
-/** One event with its facets, entities, threads, latest relevance and deliveries; null for an unknown id. */
+/** One event with its facets, entities, threads, latest interest and deliveries; null for an unknown id. */
 export const readEvent = async (db: Db, id: number, deliveryLimit: number) => {
   const flag = (c: AnyColumn) => sql<number>`coalesce(max(${c}), 0)`
   const [[row], ents, linked, [scored], [flags], sent] = await Promise.all([
@@ -282,10 +283,15 @@ export const readEvent = async (db: Db, id: number, deliveryLimit: number) => {
       .where(and(eq(eventThreads.eventId, id), inArray(threads.status, SHOWN_THREADS)))
       .orderBy(desc(eventThreads.confidence)),
     db
-      .select({ score: relevance.score, reason: relevance.reason, profileVersion: relevance.profileVersion })
-      .from(relevance)
-      .where(eq(relevance.eventId, id))
-      .orderBy(desc(relevance.profileVersion))
+      .select({
+        level: interest.level,
+        muted: interest.muted,
+        reason: interest.reason,
+        profileVersion: interest.profileVersion,
+      })
+      .from(interest)
+      .where(eq(interest.eventId, id))
+      .orderBy(desc(interest.profileVersion))
       .limit(1),
     db
       .select({
@@ -303,7 +309,7 @@ export const readEvent = async (db: Db, id: number, deliveryLimit: number) => {
     ...row,
     entities: ents,
     threads: linked,
-    relevance: scored ?? null,
+    interest: scored ?? null,
     flags: { opinion: !!flags?.opinion, roundup: !!flags?.roundup, promotional: !!flags?.promotional },
     deliveries: sent,
   }

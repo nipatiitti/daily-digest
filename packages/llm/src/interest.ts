@@ -3,8 +3,7 @@ import type { Profile } from "@digest/db"
 import { z } from "zod"
 import type { Llm } from "./client.ts"
 import { MODELS } from "./models.ts"
-import { tagText } from "./prompt.ts"
-import { countryList, DATA_RULE, profileText, WRITING_RULE } from "./relevance.ts"
+import { countryList, DATA_RULE, profileText, tagText, WRITING_RULE } from "./prompt.ts"
 
 export type InterestEvent = {
   id: number

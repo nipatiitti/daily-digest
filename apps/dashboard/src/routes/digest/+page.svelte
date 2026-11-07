@@ -24,9 +24,8 @@ const pageNo = $derived(Math.max(1, Math.floor(Number(page.url.searchParams.get(
             </a>
             <span>{fmtInt(e.items)} {e.items === 1 ? "item" : "items"}</span>
             <span class="text-ink-muted">{fmtInt(e.up)} up, {fmtInt(e.down)} down</span>
-            {#each e.shadow as s (s.mode)}
-              <span class="dd-tick">{s.mode} {fmtInt(s.items)}</span>
-            {/each}
+            {#if e.held}<span class="dd-tick">held back {fmtInt(e.held)}</span>{/if}
+            {#if e.replayed}<span class="dd-tick">replay {fmtInt(e.replayed)}</span>{/if}
           </li>
         {/each}
       </ol>

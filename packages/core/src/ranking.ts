@@ -1,4 +1,4 @@
-import { RANKING } from "./config.ts"
+import { EDITION, INTEREST, RANKING } from "./config.ts"
 import { HOUR_MS } from "./rollup.ts"
 
 const saturate = (x: number, half: number) => Math.max(0, x) / (Math.max(0, x) + half)
@@ -27,9 +27,22 @@ export const importance = (e: {
 export const freshness = (lastArticleAt: number, now: number) =>
   0.5 ** (Math.max(0, now - lastArticleAt) / (RANKING.freshnessHalfLifeHours * HOUR_MS))
 
-/** 1 for a zero or positive vote balance, lower per net downvote, never below the floor. */
-export const votePenalty = (balance: number) =>
-  balance >= 0 ? 1 : Math.max(RANKING.votePenaltyFloor, 1 + RANKING.votePenaltyPerDown * balance)
+/** The interest lift for a level 0 to 3: never below 1. */
+export const boost = (level: number) => INTEREST.boost[Math.max(0, Math.min(3, Math.round(level)))] ?? 1
 
-export const rankScore = (relevance: number, importance: number, freshness: number, penalty: number) =>
-  (relevance / 100) * importance * freshness * penalty
+/** An event's gate: its significance times the interest lift, at most 100. */
+export const gateOf = (significance: number, level: number) => Math.min(100, Math.round(significance * boost(level)))
+
+/** EDITION.corroborationFloor at no corroboration, 1 at full importance. */
+export const corroboration = (importance: number) =>
+  EDITION.corroborationFloor + (1 - EDITION.corroborationFloor) * Math.max(0, Math.min(1, importance))
+
+/**
+ * A group goes out when its gate reaches EDITION.minSignificance and, when it is a story, its change since the last
+ * brief is major. A storyless thread or event needs only the gate.
+ */
+export const qualifies = (g: { gate: number; story: boolean; change: "none" | "minor" | "major" | null }) =>
+  g.gate >= EDITION.minSignificance && (!g.story || g.change === "major")
+
+export const itemScore = (gate: number, importance: number, freshness: number) =>
+  (gate / 100) * corroboration(importance) * freshness

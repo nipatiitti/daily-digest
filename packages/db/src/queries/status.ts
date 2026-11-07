@@ -3,14 +3,14 @@ import type { Db } from "../client.ts"
 import {
   articles,
   digests,
-  digestsShadow,
+  editionItems,
   eventArticles,
+  eventCodes,
   events,
   hourlyRuns,
   llmCalls,
   movers,
   pairDecisions,
-  relevance,
   sources,
   threads,
 } from "../schema/index.ts"
@@ -27,7 +27,7 @@ const newest = (at: AnyColumn) => sql<number | null>`max(${at})`
  * the ingest backlog and its oldest article; the hourly loop's newest writes; Claude spend per UTC day and purpose since
  * `spendFrom`; same-event decisions per hour and placements by how over the last `hours`; events first seen in the last
  * day and week and how many of them have one article; event and thread counts by status; the latest `editions` with
- * the shadow modes written for each.
+ * whether each was replayed.
  */
 export const statusPage = async (db: Db, now: number, o: { spendFrom: number; hours: number; editions: number }) => {
   const since = now - o.hours * HOUR
@@ -73,7 +73,7 @@ export const statusPage = async (db: Db, now: number, o: { spendFrom: number; ho
       .from(eventArticles),
     db.select().from(hourlyRuns).orderBy(hourlyRuns.step),
     db.select({ at: newest(movers.bucket) }).from(movers),
-    db.select({ at: newest(relevance.at) }).from(relevance),
+    db.select({ at: newest(eventCodes.codedAt) }).from(eventCodes),
     db
       .select({ day, purpose: llmCalls.purpose, usd: sql<number>`sum(${llmCalls.estCostUsd})` })
       .from(llmCalls)
@@ -107,8 +107,8 @@ export const statusPage = async (db: Db, now: number, o: { spendFrom: number; ho
         status: digests.status,
         sentAt: digests.sentAt,
         items: digests.itemCount,
-        modes: sql<string | null>`(select group_concat(distinct ${digestsShadow.mode}) from ${digestsShadow}
-            where ${digestsShadow.editionKey} = ${digests.digestDate})`,
+        modes: sql<string | null>`(select group_concat(distinct ${editionItems.mode}) from ${editionItems}
+            where ${editionItems.editionKey} = ${digests.digestDate} and ${editionItems.mode} != 'send')`,
       })
       .from(digests)
       .orderBy(desc(digests.digestDate))
@@ -118,7 +118,7 @@ export const statusPage = async (db: Db, now: number, o: { spendFrom: number; ho
     sources: list,
     ingest: { backlog: backlog?.n ?? 0, oldest: backlog?.oldest ?? null, lastHour: placed?.lastHour ?? 0 },
     runs,
-    lag: { movers: mover?.at ?? null, relevance: scored?.at ?? null, placed: placed?.at ?? null },
+    lag: { movers: mover?.at ?? null, coding: scored?.at ?? null, placed: placed?.at ?? null },
     spend,
     pairs,
     hows,

@@ -1,4 +1,4 @@
-import { HOUR_MS, INTEREST, SUBSTANTIAL } from "@digest/core"
+import { countryName, HOUR_MS, INTEREST, SUBSTANTIAL } from "@digest/core"
 import {
   currentProfile,
   type Db,
@@ -7,11 +7,27 @@ import {
   type InterestTarget,
   interestTargets,
   type Profile,
+  type ProfileFollows,
   saveInterest,
 } from "@digest/db"
 import { type Llm, LlmRefusal, SpendCapError, scoreInterest } from "@digest/llm"
 import { overSoftCap } from "./llm.ts"
 import { log } from "./util.ts"
+
+/** The followed thread, entity or country an event touches, by name, in that order; null when none. */
+export const followedName = (
+  follows: ProfileFollows,
+  threads: { threadId: number; name: string }[],
+  entities: { key: string; name: string }[],
+  countries: string[],
+) => {
+  const country = countries.find((c) => follows.countries.includes(c))
+  return (
+    threads.find((t) => follows.threads.includes(t.threadId))?.name ??
+    entities.find((e) => follows.entities.includes(e.key))?.name ??
+    (country ? countryName(country) : null)
+  )
+}
 
 type Mark = { eventId: number; level: number; muted: boolean; reason: string; callId: number | null }
 

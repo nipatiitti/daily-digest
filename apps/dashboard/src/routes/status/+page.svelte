@@ -135,7 +135,7 @@ const confirmDisable =
       <h2 class="dd-label">Last editions</h2>
       <div class="overflow-x-auto">
         <table class={table}>
-          {@render head(["Edition", "Status", "Sent", "Items", "Shadow"])}
+          {@render head(["Edition", "Status", "Sent", "Items", "Replay"])}
           <tbody>
             {#each s.editions as e (e.key)}
               <tr class="border-t border-line">

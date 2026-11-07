@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 31
+export const CONFIG_VERSION = 32
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -23,13 +23,13 @@ export const SPEND = {
   /** Used when MONTHLY_BUDGET_USD is unset. */
   monthlyBudgetUsd: 100,
   maxDailyUsd: 8,
-  /** Above this share of today's allowance, the hourly threads, relevance and movers steps skip. */
+  /** Above this share of today's allowance, the hourly threads, stories, coding, interest and movers steps skip. */
   softCapShare: 0.8,
 }
 
 export const DIGEST = {
   maxLinks: 3,
-  /** UTC hours the two editions go out; the digest crons in apps/pipeline/wrangler.jsonc must match. */
+  /** UTC hours the two editions go out, at 20 past; the digest crons in apps/pipeline/wrangler.jsonc must match. */
   editions: { morning: 6, afternoon: 15 },
 }
 
@@ -285,20 +285,6 @@ export const HOME = {
   spendCapUsd: 2,
 }
 
-/** Haiku scores substantial events against the current profile: once per profile version, again once origins double. */
-export const RELEVANCE = {
-  /** The hourly run scores active events with an article this recently. */
-  recentHours: 72,
-  /** An event is scored again once its independent origins reach this multiple of those at the last score. */
-  rescoreOriginsFactor: 2,
-  /** Events scored per run, latest article first, the rest waiting an hour. */
-  maxPerRun: 150,
-  /** Events per Haiku call. */
-  perCall: 10,
-  /** Entity names shown per event, most mentioned first. */
-  entitiesPerEvent: 12,
-}
-
 /**
  * Event coding: Haiku codes substantial events from their newest reports, profile-free, latest article first. An
  * event is coded again once its independent origins reach recodeOriginsFactor times those when coded, or grow after
@@ -335,7 +321,7 @@ export const INTEREST = {
   followLevel: 2,
 }
 
-/** Ranking in code: relevance / 100 x importance x freshness x vote penalty. */
+/** Corroboration in code: how widely and how fast independent outlets report an event, 0 to 1. */
 export const RANKING = {
   /**
    * Importance parts saturate as x / (x + half): independent origin outlets, their distinct home countries, distinct
@@ -351,56 +337,38 @@ export const RANKING = {
   weights: { origins: 0.4, countries: 0.25, sources: 0.15, velocity: 0.2 },
   officialBonus: 0.2,
   freshnessHalfLifeHours: 18,
-  /** Each net downvote on the event's thread or an entity takes this off, down to the floor; the worst one counts. */
-  votePenaltyPerDown: 0.15,
-  votePenaltyFloor: 0.4,
-  voteWindowDays: 30,
 }
 
-/** The v2 digest edition. */
+/**
+ * The digest edition: candidates are grouped by story (else thread, else event). A group's gate is its best material
+ * event's significance times INTEREST.boost for its interest, at most 100. A group goes out when the gate reaches
+ * minSignificance and, for a story, its change since the last brief is major. Items rank by
+ * gate / 100 x corroboration x freshness, at most maxItems, with no minimum.
+ */
 export const EDITION = {
-  /** "send" sends and turns alerts on; "shadow" only writes digests_shadow at the crons. */
-  mode: "send" as "shadow" | "send",
   /** Candidates changed since the previous edition, or within this window before the first one. */
   windowHours: 30,
   /** However long ago the previous edition was, candidates reach back at most this far. */
   maxLookbackHours: 72,
-  minRelevance: 40,
-  /** An advisory-only event needs this unless it touches a follow. */
-  advisoryMinRelevance: 80,
-  /**
-   * A candidate whose thread was sent in this many latest editions cools, unless its origins reached the factor times
-   * those of that item, or it ranks among the first cooldownExemptRanks after the exposure penalty.
-   */
-  threadCooldownEditions: 2,
-  cooldownOriginsFactor: 2,
-  cooldownExemptRanks: 3,
-  /** Candidates offered to the Haiku cut, spread across storylines, which keeps between minItems and maxItems. */
-  candidates: 15,
-  minItems: 5,
+  minSignificance: 60,
+  /** A muted event still goes out from this significance, before the boost. */
+  muteOverride: 75,
   maxItems: 8,
-  /** Member reports, origins first, whose titles and gists Sonnet sees per event. */
+  /** Groups past maxItems whose copy is written too, standing in for items the copy skips as talk. */
+  copySpare: 3,
+  /** Corroboration is floor + (1 - floor) x importance, so one strong outlet is not ruled out. */
+  corroborationFloor: 0.6,
+  /** Member reports, origins first, whose titles and gists Sonnet sees per item. */
   copyReports: 6,
-  /** Countries a tag names when the event has no active thread. */
+  /** Countries a tag names when the item has no story or active thread. */
   tagCountries: 2,
 }
 
-/**
- * Storylines: events that tell one running story, so one development cannot fill an edition. Two events share one
- * when their gist centroids reach `cosine` and `sharedEntities` of their `topEntities` most mentioned entities match.
- */
-export const STORYLINE = {
-  cosine: 0.55,
-  topEntities: 6,
-  sharedEntities: 2,
-  /** Offering the cut, a candidate's score is multiplied by this per candidate already offered in its storyline. */
-  spreadFactor: 0.5,
-  /** Items an edition keeps from one storyline, after the cut. */
-  maxPerEdition: 2,
-  /** Each item sent in the latest exposureEditions editions in the candidate's storyline multiplies its score by this. */
-  exposureEditions: 4,
-  exposureFactor: 0.9,
-  exposureFloor: 0.6,
+/** The story change judgment: one Haiku call per perCall story groups that clear the gate, no profile. */
+export const JUDGE = {
+  perCall: 12,
+  /** Coded events shown per story group, material first, then by significance. */
+  eventsPerGroup: 8,
 }
 
 /** The status, profile and digest archive pages. */

@@ -1,13 +1,15 @@
-import { and, count, desc, eq, gte, inArray, isNotNull, lt, or, sql } from "drizzle-orm"
+import { and, desc, eq, gte, inArray, isNotNull, lt, or, sql } from "drizzle-orm"
 import type { Db } from "../client.ts"
 import {
   deliveries,
   digests,
-  digestsShadow,
+  editionItems,
+  editionJudgments,
   entities,
   events,
   feedback,
   type ProfileFollows,
+  stories,
   threads,
 } from "../schema/index.ts"
 
@@ -34,50 +36,47 @@ const v2Sent = (db: Db) =>
     ),
   )
 
-/**
- * The v2 editions keyed in [from, to) (YYYY-MM-DD), newest first, empty ones included: each edition key
- * (editionKey) with its distinct events sent as digest items or updates and their votes over every chat, and the
- * items of each shadow mode written for it. Keys compare as text, so a date's afternoon edition sorts after its
- * morning one and before the next date. `limit` caps both reads.
- */
-export const digestEditions = async (db: Db, from: string, to: string, limit = -1) => {
-  const [live, shadow] = await db.batch([
-    db
-      .select({
-        key: digests.digestDate,
-        items: sql<number>`count(distinct ${deliveries.eventId})`,
-        up: votes("up"),
-        down: votes("down"),
-      })
-      .from(digests)
-      .leftJoin(
-        deliveries,
-        and(eq(deliveries.digestDate, digests.digestDate), inArray(deliveries.kind, ["digest", "update"])),
-      )
-      .leftJoin(feedback, eq(feedback.deliveryId, deliveries.id))
-      .where(and(v2Sent(db), gte(digests.digestDate, from), lt(digests.digestDate, to)))
-      .groupBy(digests.digestDate)
-      .orderBy(desc(digests.digestDate))
-      .limit(limit),
-    db
-      .select({ key: digestsShadow.editionKey, mode: digestsShadow.mode, items: count() })
-      .from(digestsShadow)
-      .where(and(gte(digestsShadow.editionKey, from), lt(digestsShadow.editionKey, to)))
-      .groupBy(digestsShadow.editionKey, digestsShadow.mode)
-      .orderBy(desc(digestsShadow.editionKey))
-      .limit(limit),
-  ])
-  return live.map((r) => ({ ...r, shadow: shadow.filter((s) => s.key === r.key) }))
-}
+const items = (mode: "send" | "replay") => sql<number>`(select count(*) from ${editionItems}
+  where ${editionItems.editionKey} = ${digests.digestDate} and ${editionItems.mode} = ${mode})`
+const held = sql<number>`(select count(*) from ${editionJudgments}
+  where ${editionJudgments.editionKey} = ${digests.digestDate} and ${editionJudgments.mode} = 'send'
+  and ${editionJudgments.outcome} != 'sent')`
 
 /**
- * Edition `key` (editionKey) and the alerts sent in [from, to), in send order, each event once per kind with its copy
- * and its votes over every chat, then what the v2 edition would have sent for the key, by mode and rank. `v2` is
- * false for a key that is not a v2 edition.
+ * The v2 editions keyed in [from, to) (YYYY-MM-DD), newest first, empty ones included: each edition key
+ * (editionKey) with its distinct events sent as digest items or updates and their votes over every chat, the
+ * candidates it held back, and its replayed items. Keys compare as text, so a date's afternoon edition sorts after
+ * its morning one and before the next date. `limit` caps the read.
+ */
+export const digestEditions = (db: Db, from: string, to: string, limit = -1) =>
+  db
+    .select({
+      key: digests.digestDate,
+      items: sql<number>`count(distinct ${deliveries.eventId})`,
+      up: votes("up"),
+      down: votes("down"),
+      held,
+      replayed: items("replay"),
+    })
+    .from(digests)
+    .leftJoin(
+      deliveries,
+      and(eq(deliveries.digestDate, digests.digestDate), inArray(deliveries.kind, ["digest", "update"])),
+    )
+    .leftJoin(feedback, eq(feedback.deliveryId, deliveries.id))
+    .where(and(v2Sent(db), gte(digests.digestDate, from), lt(digests.digestDate, to)))
+    .groupBy(digests.digestDate)
+    .orderBy(desc(digests.digestDate))
+    .limit(limit)
+
+/**
+ * Edition `key` (editionKey) and the alerts sent in [from, to), in send order, each event once per kind with its copy,
+ * story, gate and its votes over every chat; then the edition's items and judgments in each mode, items by rank and
+ * judgments by gate. `v2` is false for a key that is not a v2 edition.
  */
 export const digestDay = async (db: Db, key: string, from: number, to: number) => {
   const sentAt = sql<number>`min(${deliveries.sentAt})`
-  const [edition, sent, shadow] = await db.batch([
+  const [edition, sent, itemRows, judgments] = await db.batch([
     db
       .select({ key: digests.digestDate })
       .from(digests)
@@ -89,11 +88,16 @@ export const digestDay = async (db: Db, key: string, from: number, to: number) =
         up: votes("up"),
         down: votes("down"),
         eventId: events.id,
-        headline: sql<string>`coalesce(${events.headline}, ${events.title})`,
-        summary: sql<string>`coalesce(${events.summary}, ${events.gist})`,
+        headline: sql<string>`coalesce(${editionItems.headline}, ${events.headline}, ${events.title})`,
+        summary: sql<string>`coalesce(${editionItems.summary}, ${events.summary}, ${events.gist})`,
+        storyName: stories.name,
+        isUpdate: sql<number>`coalesce(max(${editionItems.isUpdate}), 0)`,
+        gate: sql<number | null>`max(${editionItems.gate})`,
       })
       .from(deliveries)
       .innerJoin(events, eq(events.id, deliveries.eventId))
+      .leftJoin(editionItems, eq(editionItems.id, deliveries.editionItemId))
+      .leftJoin(stories, eq(stories.id, deliveries.storyId))
       .leftJoin(feedback, eq(feedback.deliveryId, deliveries.id))
       .where(
         or(
@@ -104,12 +108,42 @@ export const digestDay = async (db: Db, key: string, from: number, to: number) =
       .groupBy(events.id, deliveries.kind)
       .orderBy(sentAt),
     db
-      .select()
-      .from(digestsShadow)
-      .where(eq(digestsShadow.editionKey, key))
-      .orderBy(digestsShadow.mode, digestsShadow.rank),
+      .select({
+        mode: editionItems.mode,
+        rank: editionItems.rank,
+        eventId: editionItems.leadEventId,
+        text: editionItems.text,
+        storyName: stories.name,
+        gate: editionItems.gate,
+        score: editionItems.score,
+        asOf: editionItems.asOf,
+      })
+      .from(editionItems)
+      .leftJoin(stories, eq(stories.id, editionItems.storyId))
+      .where(eq(editionItems.editionKey, key))
+      .orderBy(editionItems.mode, editionItems.rank),
+    db
+      .select({
+        mode: editionJudgments.mode,
+        eventId: editionJudgments.eventId,
+        title: sql<string>`coalesce(${events.headline}, ${events.title})`,
+        storyName: stories.name,
+        significance: editionJudgments.significance,
+        material: editionJudgments.material,
+        act: editionJudgments.act,
+        interest: editionJudgments.interest,
+        gate: editionJudgments.gate,
+        change: editionJudgments.change,
+        outcome: editionJudgments.outcome,
+        reason: editionJudgments.reason,
+      })
+      .from(editionJudgments)
+      .innerJoin(events, eq(events.id, editionJudgments.eventId))
+      .leftJoin(stories, eq(stories.id, editionJudgments.storyId))
+      .where(eq(editionJudgments.editionKey, key))
+      .orderBy(editionJudgments.mode, sql`${editionJudgments.gate} desc nulls last`, editionJudgments.eventId),
   ])
-  return { v2: edition.length > 0, sent, shadow }
+  return { v2: edition.length > 0, sent, items: itemRows, judgments }
 }
 
 /** The followed threads and entities that exist, with their names. */

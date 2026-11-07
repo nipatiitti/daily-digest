@@ -3,8 +3,7 @@ import type { Profile, ProfileEdit } from "@digest/db"
 import { z } from "zod"
 import type { Llm } from "./client.ts"
 import { MODELS } from "./models.ts"
-import { tagText } from "./prompt.ts"
-import { countryList, DATA_RULE, profileText, WRITING_RULE } from "./relevance.ts"
+import { countryList, DATA_RULE, profileText, tagText, WRITING_RULE } from "./prompt.ts"
 
 export type VoteInput = {
   feedbackId: number
@@ -12,6 +11,7 @@ export type VoteInput = {
   headline: string
   summary: string | null
   threadName: string | null
+  storyName: string | null
   countries: string[]
   sourceRoles: string[]
 }
@@ -19,18 +19,23 @@ export type VoteInput = {
 const voteBlock = (v: VoteInput) => `<vote vote="${v.vote}">
 <headline>${tagText(v.headline)}</headline>
 <summary>${tagText(v.summary ?? "")}</summary>
+<story>${tagText(v.storyName ?? "none")}</story>
 <thread>${tagText(v.threadName ?? "none")}</thread>
 <countries>${countryList(v.countries)}</countries>
 <source_roles>${tagText(v.sourceRoles.join(", "))}</source_roles>
 </vote>`
 
-const SYSTEM = `You tune a reader's news profile from the reader's votes on digest items. An up vote means the reader wanted more like it, a down vote less.
+const SYSTEM = `You tune a reader's news profile from the reader's votes on digest items. An up vote means the reader wanted the item, a down vote that they did not.
+
+The profile only lifts. The digest brings the world's significant news whatever the profile says; the profile's topics, regions and follows lift smaller items the reader cares about so they clear the bar too, and its mutes hold back what the reader never wants. So the profile holds niche interests, never broad ones.
 
 ${DATA_RULE}
 
-Propose at most ${REACTIONS.maxEdits} edits, and only where a pattern holds across at least two votes; a single vote is never enough.
-set_topic adds a topic or changes its weight: 1 a passing interest, 2 a clear one, 3 a core one. remove_topic drops a topic by its exact name.
-add_mute and remove_mute take a short plain description of what is never worth sending, such as "single-vendor advisories unless exploited at scale".
+Propose at most ${REACTIONS.maxEdits} edits, and only where a pattern holds across several votes; a single vote is never enough.
+Up votes on smaller items of one kind may add a narrow topic or raise its weight, or add a region.
+Down votes never lower or remove a topic, and never remove a region: a down vote on a significant item says nothing about the reader's interests. Only a clear pattern of at least three down votes on one narrow kind of item may add a mute that describes exactly that kind.
+set_topic adds a topic or changes its weight: 1 a passing interest, 2 a clear one, 3 a core one. remove_topic drops a topic by its exact name, only when the reader's own up votes show it was replaced by a narrower one.
+add_mute and remove_mute take a short plain description of the kind of item never worth sending.
 add_region and remove_region take an ISO 3166 country code, or EU.
 append_text adds one sentence to the reader's free text.
 Never propose follows; the reader sets those.

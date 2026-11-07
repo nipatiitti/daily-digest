@@ -4,7 +4,7 @@ import type { ReaderEvent } from "@digest/db"
 import { fmtTime } from "./format.ts"
 
 type Props = {
-  event: Pick<ReaderEvent, "id" | "title" | "gist" | "firstSeen" | "score" | "reason">
+  event: Pick<ReaderEvent, "id" | "title" | "gist" | "firstSeen" | "significance" | "interest" | "reason">
   /** The followed threads, entities and countries it belongs to, by name. */
   via?: string[]
 }
@@ -17,7 +17,11 @@ let { event: e, via = [] }: Props = $props()
     <a href="/events/{e.id}" class="dd-tick hover:text-ink">EVT-{e.id}</a>
     <time class="dd-tick" datetime={new Date(e.firstSeen).toISOString()}>{fmtTime(e.firstSeen)}</time>
     {#each via as v (v)}<span class="dd-label">{v}</span>{/each}
-    {#if e.score !== null}<span class="dd-tick ml-auto">Relevance {e.score}</span>{/if}
+    {#if e.significance !== null}
+      <span class="dd-tick ml-auto">
+        Significance {e.significance}{#if e.interest}, interest {e.interest}{/if}
+      </span>
+    {/if}
   </div>
   <h3 class="dd-heading text-balance">
     <a href="/events/{e.id}" class="hover:underline">{sanitizeUserText(e.title)}</a>

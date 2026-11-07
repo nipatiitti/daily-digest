@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, gte, inArray, isNotNull, lte, notInArray, type SQL, sql } from "drizzle-orm"
+import { and, desc, eq, gt, gte, inArray, isNotNull, lte, type SQL, sql } from "drizzle-orm"
 import { type Db, selectIn } from "../client.ts"
 import {
   articles,
@@ -16,6 +16,7 @@ import {
   profileProposals,
   profileVersions,
   sources,
+  stories,
   threads,
 } from "../schema/index.ts"
 
@@ -124,40 +125,6 @@ export const decideProposal = async (db: Db, id: number, accept: boolean, by: st
   return saveProfile(db, applyEdits(current.profile, p.editsJson), { by, note: `Proposal ${id}`, proposalId: id })
 }
 
-const balance = sql<number>`sum(case when ${feedback.vote} = 'up' then 1 else -1 end)`
-
-/**
- * Up minus down votes cast since `since`, and up to `until` when given, on v2 deliveries, per thread and per entity
- * of the delivered event. Places and topics carry no balance: a vote on one story says nothing about a country.
- */
-export const voteBalances = async (db: Db, since: number, until?: number) => {
-  const voted = and(
-    gte(feedback.createdAt, since),
-    until === undefined ? undefined : lte(feedback.createdAt, until),
-    isNotNull(deliveries.eventId),
-  )
-  const [byThread, byEntity] = await Promise.all([
-    db
-      .select({ id: deliveries.threadId, balance })
-      .from(feedback)
-      .innerJoin(deliveries, eq(deliveries.id, feedback.deliveryId))
-      .where(and(voted, isNotNull(deliveries.threadId)))
-      .groupBy(deliveries.threadId),
-    db
-      .select({ id: eventEntities.entityId, balance })
-      .from(feedback)
-      .innerJoin(deliveries, eq(deliveries.id, feedback.deliveryId))
-      .innerJoin(eventEntities, eq(eventEntities.eventId, deliveries.eventId))
-      .innerJoin(entities, eq(entities.id, eventEntities.entityId))
-      .where(and(voted, notInArray(entities.kind, ["place", "topic"])))
-      .groupBy(eventEntities.entityId),
-  ])
-  return {
-    threads: new Map(byThread.flatMap((r) => (r.id === null ? [] : [[r.id, r.balance] as const]))),
-    entities: new Map(byEntity.map((r) => [r.id, r.balance] as const)),
-  }
-}
-
 const toggle = <T>(list: T[], v: T, on: boolean) =>
   on ? (list.includes(v) ? list : [...list, v]) : list.filter((x) => x !== v)
 
@@ -195,7 +162,7 @@ const roles = (from: SQL) => sql<string | null>`(select group_concat(distinct ${
 
 /**
  * Votes cast after `since` and up to `until` on an event's delivery, oldest first, with what was delivered: the
- * event's copy, thread, countries and member source roles.
+ * event's copy, story, thread, countries and member source roles.
  */
 export const reactionVotes = async (db: Db, since: number, until: number) => {
   const rows = await db
@@ -205,6 +172,7 @@ export const reactionVotes = async (db: Db, since: number, until: number) => {
       headline: sql<string>`coalesce(${events.headline}, ${events.title})`,
       summary: sql<string>`coalesce(${events.summary}, ${events.gist})`,
       threadName: threads.name,
+      storyName: stories.name,
       countries: events.countriesJson,
       roles: roles(sql`from ${eventArticles} join ${articles} on ${articles.id} = ${eventArticles.articleId}
         join ${sources} on ${sources.id} = ${articles.sourceId} where ${eventArticles.eventId} = ${deliveries.eventId}`),
@@ -213,6 +181,7 @@ export const reactionVotes = async (db: Db, since: number, until: number) => {
     .innerJoin(deliveries, eq(deliveries.id, feedback.deliveryId))
     .innerJoin(events, eq(events.id, deliveries.eventId))
     .leftJoin(threads, eq(threads.id, deliveries.threadId))
+    .leftJoin(stories, eq(stories.id, sql`coalesce(${deliveries.storyId}, ${threads.storyId})`))
     .where(and(gt(feedback.createdAt, since), lte(feedback.createdAt, until)))
     .orderBy(feedback.id)
   return rows.map(({ roles, ...r }) => ({ ...r, sourceRoles: (roles ?? "").split(",").filter(Boolean) }))

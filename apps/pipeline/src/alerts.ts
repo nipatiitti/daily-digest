@@ -1,9 +1,9 @@
-import { ALERTS, DAY_MS, EDITION, HOUR_MS, sanitizeUserText } from "@digest/core"
+import { ALERTS, DAY_MS, HOUR_MS, sanitizeUserText } from "@digest/core"
 import { alertDeliveries, currentProfile, type Db, eventMembers, followedLinks } from "@digest/db"
 import type { Llm } from "@digest/llm"
 import { escapeHtml, parseChatIds } from "@digest/telegram"
 import { Api } from "grammy"
-import { buildEventItems } from "./items.ts"
+import { buildStoryItems } from "./items.ts"
 import { directly, sendDelivery } from "./send.ts"
 import { log } from "./util.ts"
 
@@ -20,7 +20,7 @@ const isQuiet = (now: number) => {
 }
 
 /**
- * Hourly, once EDITION.mode is "send": an active event on a followed thread or entity with an article in the last
+ * Hourly: an active event on a followed thread or entity with an article in the last
  * ALERTS.lookbackHours gets one message outside the editions when an official source reports it or enough origins
  * were published in the last hour. Never the same event twice, never a thread or entity again within the cooldown,
  * at most ALERTS.maxPerDay a UTC day, silent in the Helsinki quiet hours.
@@ -31,7 +31,6 @@ export const alertsStep = async (
   llm: Llm | null,
   now: number,
 ): Promise<Record<string, number>> => {
-  if (EDITION.mode !== "send") return { shadow: 1 }
   const chatIds = parseChatIds(env.TELEGRAM_CHAT_IDS)
   if (!env.TELEGRAM_BOT_TOKEN || chatIds.length === 0) {
     log("alerts_skipped", { reason: "no bot token or chats" })
@@ -76,7 +75,14 @@ export const alertsStep = async (
   if (picks.length === 0) return counts
 
   const ids = picks.map((p) => p.eventId)
-  const items = await buildEventItems(db, llm, current.profile, ids, now, { persist: true })
+  const items = await buildStoryItems(
+    db,
+    llm,
+    current.profile,
+    ids.map((id) => ({ leadId: id, carriers: [id], story: null, lastBrief: null })),
+    now,
+    { persist: true },
+  )
   const api = new Api(env.TELEGRAM_BOT_TOKEN)
   for (const { eventId, reason } of picks) {
     const item = items.get(eventId)

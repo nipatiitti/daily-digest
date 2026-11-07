@@ -220,3 +220,16 @@ export const storyLifecycle = async (db: Db, o: { quietSince: number }) => {
   ])) as [unknown, unknown[]]
   return { closed: closed.length }
 }
+
+/** The given stories' names and descriptions, by id. */
+export const storiesByIds = async (db: Db, ids: number[]) =>
+  new Map(
+    (
+      await selectIn(db, ids, 1, (chunk) =>
+        db
+          .select({ id: stories.id, name: stories.name, description: stories.description })
+          .from(stories)
+          .where(inArray(stories.id, chunk)),
+      )
+    ).map((r) => [r.id, r]),
+  )

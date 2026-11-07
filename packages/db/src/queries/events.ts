@@ -5,6 +5,9 @@ import {
   articles,
   deliveries,
   digestsShadow,
+  editionItemEvents,
+  editionItems,
+  editionJudgments,
   entities,
   eventActors,
   eventArticles,
@@ -180,7 +183,7 @@ export const savePairDecision = (db: Db, d: typeof pairDecisions.$inferInsert) =
 /** Rows of a link table move from one event to another unless the other already has that link. */
 const moveLinks = (
   db: Db,
-  table: typeof eventEntities | typeof eventThreads,
+  table: typeof eventEntities | typeof eventThreads | typeof editionItemEvents,
   other: string,
   from: number,
   into: number,
@@ -198,15 +201,18 @@ const moveLinks = (
 ]
 
 /**
- * Fold one event into another: articles, entity and thread links, deliveries and shadow items move, the younger's
- * relevance and interest rows and both codes go, and it is marked merged with zero counters. The caller recomputes
- * the target's counters.
+ * Fold one event into another: articles, entity, thread and edition item links, deliveries and shadow items move, the
+ * younger's relevance, interest and judgment rows and both codes go, and it is marked merged with zero counters. The
+ * caller recomputes the target's counters.
  */
 export const mergeEvents = (db: Db, fromId: number, intoId: number, now: number) =>
   runBatch(db, [
     db.update(eventArticles).set({ eventId: intoId, how: "merge" }).where(eq(eventArticles.eventId, fromId)),
     ...moveLinks(db, eventEntities, "entity_id", fromId, intoId),
     ...moveLinks(db, eventThreads, "thread_id", fromId, intoId),
+    ...moveLinks(db, editionItemEvents, "item_id", fromId, intoId),
+    db.update(editionItems).set({ leadEventId: intoId }).where(eq(editionItems.leadEventId, fromId)),
+    db.delete(editionJudgments).where(eq(editionJudgments.eventId, fromId)),
     db.update(deliveries).set({ eventId: intoId }).where(eq(deliveries.eventId, fromId)),
     db.update(digestsShadow).set({ eventId: intoId }).where(eq(digestsShadow.eventId, fromId)),
     db.delete(relevance).where(eq(relevance.eventId, fromId)),

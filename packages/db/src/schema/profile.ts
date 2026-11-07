@@ -9,7 +9,7 @@ export type ProfileTopic = { name: string; weight: number }
 /** Threads by ID, entities by key (core's normaliseEntityKey), countries by ISO code. */
 export type ProfileFollows = { threads: number[]; entities: string[]; countries: string[] }
 
-/** The reader's interest profile, as relevance scoring and the digest read it. */
+/** The reader's interest profile, as interest marking and the digest read it. */
 export type Profile = {
   /** Free text: who the reader is and what they care about. */
   text: string
@@ -21,7 +21,7 @@ export type Profile = {
   mutes: string[]
 }
 
-/** Append-only: the current profile is the highest version. Every relevance score records the version it used. */
+/** Append-only: the current profile is the highest version. Every interest mark records the version it used. */
 export const profileVersions = sqliteTable("profile_versions", {
   version: integer().primaryKey(),
   text: text().notNull(),
@@ -71,7 +71,7 @@ export const profileProposals = sqliteTable(
   (t) => [index("profile_proposals_status_idx").on(t.status, t.createdAt)],
 )
 
-/** Haiku's 0 to 100 relevance of an event to one profile version, with a one-line reason. */
+/** Haiku's 0 to 100 relevance of an event to one profile version. No longer written since story editions; dropped later. */
 export const relevance = sqliteTable(
   "relevance",
   {

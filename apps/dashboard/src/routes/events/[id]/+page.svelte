@@ -35,10 +35,10 @@ const flags = $derived(
     </div>
     <h1 class="dd-display text-balance">{sanitizeUserText(e.title)}</h1>
     <p class="dd-body text-pretty">{sanitizeUserText(e.gist)}</p>
-    {#if e.relevance}
+    {#if e.interest}
       <p class="dd-body-sm text-ink-muted">
-        Relevance {e.relevance.score} for profile version {e.relevance.profileVersion}.
-        {sanitizeUserText(e.relevance.reason)}
+        Interest {e.interest.level} of 3{e.interest.muted ? ", muted" : ""} for profile version
+        {e.interest.profileVersion}. {sanitizeUserText(e.interest.reason)}
       </p>
     {/if}
     {#if e.code}

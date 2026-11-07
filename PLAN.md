@@ -5,19 +5,20 @@ history before 3 Nov 2026. AGENTS.md has the working rules, DEPLOY.md the one-ti
 
 ## Decisions
 
-| Question         | Decision                                                                                                  |
-| ---------------- | --------------------------------------------------------------------------------------------------------- |
-| What is relevant | An editable interest profile (`profile_versions`), adjusted by votes through accepted proposals           |
-| Unit of news     | An event (one real-world happening), clustered from English gists of articles                             |
-| Unit of trends   | A thread (a development over days or weeks); volume counted from its events' articles                     |
-| Ranking          | `relevance x importance x freshness x vote penalty x storyline exposure`, in code; Haiku writes relevance |
-| Digest           | Two editions, `0 6 * * *` and `0 15 * * *`; a Haiku final cut, then Sonnet copy for the picks only        |
-| Embeddings       | `@cf/baai/bge-m3`, 1024-d, cosine, over `titleEn` and `gist`, in Vectorize `digest-gists`                 |
-| Dashboard        | Reader first: Home, threads, entities, countries, events, profile, digest archive, one status page        |
-| Security         | One interest among others: advisory sources reach the digest only with high profile relevance or a follow |
-| Tests            | None; `pnpm check` is the gate                                                                            |
-| Git flow         | Commit straight to `main`, no PRs                                                                         |
-| Hostnames        | `dd.nipatiitti.fi` (dashboard, behind Access), `hooks.dd.nipatiitti.fi` (ingress)                         |
+| Question         | Decision                                                                                                   |
+| ---------------- | ---------------------------------------------------------------------------------------------------------- |
+| What is relevant | World significance first (`event_codes`); the profile's niche interests only lift (`interest`), mutes hold |
+| Unit of news     | An event (one real-world happening), clustered from English gists of articles                              |
+| Unit of trends   | A thread (a development over days or weeks); volume counted from its events' articles                      |
+| Unit of items    | A story (a running matter over months or years): at most one item an edition, only on a major change       |
+| Ranking          | `min(100, significance x interest boost) / 100 x corroboration x freshness`, in code                       |
+| Digest           | Two editions, `20 6 * * *` and `20 15 * * *`; a gate at 60, a Haiku change judgment, Sonnet copy, no min   |
+| Embeddings       | `@cf/baai/bge-m3`, 1024-d, cosine, over `titleEn` and `gist`, in Vectorize `digest-gists`                  |
+| Dashboard        | Reader first: Home, threads, entities, countries, events, profile, digest archive, one status page         |
+| Security         | One interest among others: a critical flaw in widely used software is significant on its own               |
+| Tests            | None; `pnpm check` is the gate                                                                             |
+| Git flow         | Commit straight to `main`, no PRs                                                                          |
+| Hostnames        | `dd.nipatiitti.fi` (dashboard, behind Access), `hooks.dd.nipatiitti.fi` (ingress)                          |
 
 ## Pipeline
 
@@ -35,17 +36,24 @@ history before 3 Nov 2026. AGENTS.md has the working rules, DEPLOY.md the one-ti
    - threads: substantial events (`SUBSTANTIAL`) join a candidate thread or start one, Haiku deciding and Sonnet
      naming with the nearest threads shown; quiet threads close after 30 days and reopen on a new event;
    - rollups by source, entity, thread and country, then momentum;
-   - relevance: Haiku scores substantial events against the current profile, again when the profile version changes
-     or the event's origins double;
+   - stories: Haiku puts threads into running stories, proposes one or keeps a one-off thread out, Sonnet naming
+     with the nearest stories shown; a storyless thread is asked again as it grows;
+   - coding: Haiku codes substantial events profile-free, for any field: act, material or talk, significance by
+     people and systems affected, valence, stance for interactions, actors; again as origins double or grow;
+   - interest: Haiku marks substantial events 0 to 3 against the current profile and whether a mute describes them,
+     again when the profile version changes or the event's origins double;
    - movers: the hour's largest risers across threads, entities and countries, with a one-line reason for the top
      five;
-   - alerts: followed threads and entities with an official source or a velocity spike, only in send mode.
-4. **Editions** (`digest-v2` Workflow, `apps/pipeline/src/digest-v2.ts`): candidates changed since the previous
-   edition, ranked in code and lowered per recent item of their storyline (`STORYLINE`: gist centroid and shared
-   entities, `core/src/storyline.ts`), thread cooldown over the last two editions, 15 candidates spread across
-   storylines, a Haiku final cut to 5 to 8 items with at most two per storyline, Sonnet copy for the picks, tags from
-   the thread or the countries. `mode` is `send`, `shadow` (writes
-   `digests_shadow` at the crons) or `replay` (a past edition as of its send time, `scripts/replay-editions.ts`).
+   - alerts: followed threads and entities with an official source or a velocity spike.
+4. **Editions** (`digest-v2` Workflow, `apps/pipeline/src/digest-v2.ts`): unsent candidates changed since the
+   previous edition are coded, threaded, put in stories and marked where the hourly loop has not yet, then grouped
+   by story, else thread, else event. A group's gate is its best material event's significance times the interest
+   boost, at most 100; it needs `EDITION.minSignificance`, and a story group also a major change since the reader's
+   last brief on it (a Haiku judgment, carried by the events it names). Talk never qualifies. Items rank by gate,
+   corroboration and freshness, at most 8 and no minimum; Sonnet writes copy that says only what changed and may
+   skip an item as talk. Every candidate's outcome goes to `edition_judgments`, the items to `edition_items`, which
+   are the reader's state. `mode` is `send` or `replay` (a past edition as of its send time, written with mode
+   replay, `scripts/replay-editions.ts`).
 5. **Nightly** (03:30 UTC): close quiet events, database stats, and the reactions step that turns new
    votes into `profile_proposals` for `/profile`.
 
@@ -94,8 +102,8 @@ off, one D1 `DB` → `digest` with `migrations_dir` → `packages/db/migrations`
 | Vectorize `GISTS` → `digest-gists`                                      | yes                                       |                                                 | yes (Ask search)                                                                    |
 | Secrets                                                                 | `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN` | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` | `ANTHROPIC_API_KEY`                                                                 |
 | Vars                                                                    | `TELEGRAM_CHAT_IDS`, `MONTHLY_BUDGET_USD` | `TELEGRAM_CHAT_IDS`                             | `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `DASHBOARD_SPEND_CAP_USD`, `MONTHLY_BUDGET_USD` |
-- Edition idempotency: send mode claims `digests(digest_date)` with `ON CONFLICT DO NOTHING`; shadow and replay
-  replace their own `digests_shadow` rows.
+- Edition idempotency: send mode claims `digests(digest_date)` with `ON CONFLICT DO NOTHING`; a replay replaces its
+  own `edition_items` and `edition_judgments` rows.
 - Queue messages carry IDs only; Workflow steps return small JSON, never vectors or full text.
 - Cloudflare resources are created by hand (DEPLOY.md), never by the deploy.
 

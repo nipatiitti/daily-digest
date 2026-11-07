@@ -40,6 +40,7 @@ export const LLM_PURPOSES = [
   "story",
   "coding",
   "interest",
+  "edition_change",
   ...DASHBOARD_LLM_PURPOSES,
 ] as const
 export type LlmPurpose = (typeof LLM_PURPOSES)[number]
