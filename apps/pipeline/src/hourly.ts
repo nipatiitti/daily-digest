@@ -4,6 +4,7 @@ import { consolidateStep } from "./hourly/consolidate.ts"
 import { momentumStep } from "./hourly/momentum.ts"
 import { moversStep } from "./hourly/movers.ts"
 import { rollupStep } from "./hourly/rollups.ts"
+import { storiesStep } from "./hourly/stories.ts"
 import { threadsStep } from "./hourly/threads.ts"
 import type { llmFor } from "./llm.ts"
 import { relevanceStep } from "./relevance.ts"
@@ -16,6 +17,7 @@ export const runHourly = async (env: Env, db: Db, llm: ReturnType<typeof llmFor>
     // Fold duplicate events before threads and rollups read event ids.
     { name: "consolidate", run: () => consolidateStep({ GISTS: env.GISTS }, db, llm, now) },
     { name: "threads", run: () => threadsStep(db, llm, now) },
+    { name: "stories", run: () => storiesStep(db, llm, now) },
     { name: "rollups", run: () => rollupStep(db, now) },
     { name: "momentum", run: () => momentumStep(db, now) },
     { name: "relevance", run: () => relevanceStep(db, llm, now) },

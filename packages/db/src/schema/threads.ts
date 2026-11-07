@@ -7,6 +7,34 @@ import { llmCalls } from "./ops.ts"
 export const THREAD_STATUSES = ["provisional", "active", "closed", "merged"] as const
 export type ThreadStatus = (typeof THREAD_STATUSES)[number]
 
+export const STORY_STATUSES = ["active", "closed", "merged"] as const
+export type StoryStatus = (typeof STORY_STATUSES)[number]
+
+/**
+ * One running matter over months or years that threads belong to, such as one war between the same parties or one
+ * company saga. An edition gives a story at most one item, and only when its situation changes.
+ */
+export const stories = sqliteTable(
+  "stories",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    name: text().notNull(),
+    /** One sentence. */
+    description: text().notNull(),
+    status: text({ enum: STORY_STATUSES }).notNull().default("active"),
+    mergedInto: integer().references((): AnySQLiteColumn => stories.id),
+    /** Mean of the member threads' centroids at assignment. */
+    centroid: vector().notNull(),
+    firstSeen: integer().notNull(),
+    /** Latest member thread's last article. */
+    lastSeen: integer().notNull(),
+    /** Unmerged threads in it. */
+    threadCount: integer().notNull().default(0),
+    createdAt: nowMs(),
+  },
+  (t) => [index("stories_status_last_seen_idx").on(t.status, t.lastSeen)],
+)
+
 /** A development that spans days or weeks, such as one election or one set of peace talks. Trends are counted on it. */
 export const threads = sqliteTable(
   "threads",
@@ -28,10 +56,16 @@ export const threads = sqliteTable(
     /** Written hourly from rollups: signed percent change in articles, null for a rise from 0. */
     momentum24h: real("momentum_24h"),
     momentum7d: real("momentum_7d"),
+    /** The story it belongs to; null for a one-off development or before it is checked. */
+    storyId: integer().references(() => stories.id),
+    /** When a model last decided its story, and its event count then: a storyless thread is asked again as it grows. */
+    storyCheckedAt: integer(),
+    storyCheckedEvents: integer(),
   },
   (t) => [
     index("threads_status_last_seen_idx").on(t.status, t.lastSeen),
     index("threads_merged_into_idx").on(t.mergedInto),
+    index("threads_story_idx").on(t.storyId),
   ],
 )
 
@@ -78,6 +112,7 @@ export const movers = sqliteTable(
   (t) => [primaryKey({ columns: [t.bucket, t.kind, t.key] }), index("movers_bucket_rank_idx").on(t.bucket, t.rank)],
 )
 
+export type Story = typeof stories.$inferSelect
 export type Thread = typeof threads.$inferSelect
 export type EventThread = typeof eventThreads.$inferSelect
 export type Mover = typeof movers.$inferSelect

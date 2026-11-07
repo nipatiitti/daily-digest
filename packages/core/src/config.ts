@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 30
+export const CONFIG_VERSION = 31
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -173,6 +173,34 @@ export const THREADS = {
   namingNearest: 3,
 }
 
+/**
+ * Stories: threads put hourly into running matters that last months or years. A thread is placed once; one kept out
+ * of every story is asked again when its events reach recheckFactor times those it had then.
+ */
+export const STORIES = {
+  /** Threads placed per run, latest article first, the rest waiting an hour. */
+  maxThreadsPerRun: 40,
+  /** Only threads with an article this recently are placed. */
+  backfillDays: 14,
+  recheckFactor: 2,
+  /** Candidate stories shown to Haiku: those of threads sharing entities with the thread's latest events, then nearest. */
+  maxCandidates: 10,
+  /** Stories nearest the thread's centroid that become candidates. */
+  nearestK: 8,
+  /** The thread's latest events whose entities find candidate stories, and the entities they must share. */
+  entityEvents: 2,
+  sharedEntitiesMin: 2,
+  /** Event titles shown per thread, and thread names shown per candidate story. */
+  titlesPerThread: 4,
+  examplesPerCandidate: 3,
+  /** Nearest stories Sonnet sees when naming a proposal, so it can merge a duplicate instead. */
+  namingNearest: 4,
+  /** Stories with no new article for this long are closed; a joining thread reopens them. */
+  closeAfterDays: 120,
+  /** Closed stories stay candidates for this long after their last article. */
+  reopenDays: 365,
+}
+
 /** The hour's top movers on the home page: threads, entities and countries whose article volume rose most. */
 export const MOVERS = {
   /** Articles a subject needs in the last 24 hours, so 1 article becoming 2 is not a mover. */
@@ -224,6 +252,9 @@ export const HOME = {
   sparkHours: 24,
   /** Threads on /threads; under 95 so their sparklines fit one rollup read. */
   threadList: 90,
+  /** Stories on /threads?view=stories, and the latest thread names shown under each. */
+  storyList: 100,
+  storyThreads: 4,
   /** Hours of a subject's volume chart: two weeks, so the 7 day change has the week before. */
   chartHours: 336,
   timelineEvents: 50,

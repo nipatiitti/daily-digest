@@ -1,5 +1,5 @@
 import { HOME, HOUR_MS, hourBucket } from "@digest/core"
-import { readSparks, readThreads } from "@digest/db"
+import { readSparks, readStories, readThreads } from "@digest/db"
 import { z } from "zod"
 import { db } from "#lib/server/db.ts"
 import { query } from "$app/server"
@@ -18,3 +18,6 @@ export const threadRows = query(z.boolean(), async (provisional) => {
   )
   return rows.map((r) => ({ ...r, spark: sparks.get(String(r.id)) ?? [] }))
 })
+
+/** Stories, latest activity first, with the names of their latest threads. */
+export const storyRows = query(async () => readStories(db(), { limit: HOME.storyList, perStory: HOME.storyThreads }))

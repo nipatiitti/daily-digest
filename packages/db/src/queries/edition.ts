@@ -12,6 +12,7 @@ import {
   eventThreads,
   relevance,
   type ShadowMode,
+  stories,
   threads,
 } from "../schema/index.ts"
 import { lastRun, markRun } from "./entities.ts"
@@ -62,14 +63,22 @@ export const relevanceTargets = async (
   return selectIn(db, o.eventIds, 2, (chunk) => due(and(inArray(events.id, chunk), ne(events.status, "merged"))))
 }
 
-/** Each event's unmerged threads, the highest confidence (its primary thread) first. */
+/** Each event's unmerged threads with their live story, the highest confidence (its primary thread) first. */
 export const eventThreadLinks = async (db: Db, ids: number[]) =>
   byEvent(
     await selectIn(db, ids, 2, (chunk) =>
       db
-        .select({ eventId: eventThreads.eventId, threadId: threads.id, name: threads.name, status: threads.status })
+        .select({
+          eventId: eventThreads.eventId,
+          threadId: threads.id,
+          name: threads.name,
+          status: threads.status,
+          storyId: stories.id,
+          storyName: stories.name,
+        })
         .from(eventThreads)
         .innerJoin(threads, eq(threads.id, eventThreads.threadId))
+        .leftJoin(stories, and(eq(stories.id, threads.storyId), ne(stories.status, "merged")))
         .where(and(inArray(eventThreads.eventId, chunk), gt(eventThreads.confidence, 0), ne(threads.status, "merged")))
         .orderBy(desc(eventThreads.confidence), threads.id),
     ),

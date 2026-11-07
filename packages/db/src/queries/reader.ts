@@ -15,10 +15,12 @@ import {
   type ProfileFollows,
   type RollupKind,
   relevance,
+  stories,
   type ThreadStatus,
   threads,
 } from "../schema/index.ts"
 import { rollupBuckets } from "./rollups.ts"
+import { storyExamples } from "./stories.ts"
 
 /** Threads the reader pages show; provisional ones only behind the list's toggle. */
 export const SHOWN_THREADS: ThreadStatus[] = ["active", "closed"]
@@ -149,7 +151,7 @@ export const readThread = async (db: Db, id: number) => {
   return row ?? null
 }
 
-/** Active threads, provisional ones too when asked, latest activity first. */
+/** Active threads, provisional ones too when asked, latest activity first, with their story. */
 export const readThreads = (db: Db, o: { provisional: boolean; limit: number }) =>
   db
     .select({
@@ -160,11 +162,36 @@ export const readThreads = (db: Db, o: { provisional: boolean; limit: number }) 
       lastSeen: threads.lastSeen,
       momentum24h: threads.momentum24h,
       momentum7d: threads.momentum7d,
+      storyName: stories.name,
     })
     .from(threads)
+    .leftJoin(stories, eq(stories.id, threads.storyId))
     .where(inArray(threads.status, o.provisional ? ["active", "provisional"] : ["active"]))
     .orderBy(desc(threads.lastSeen))
     .limit(o.limit)
+
+/** Unmerged stories, latest activity first, each with up to `perStory` names of its latest threads. */
+export const readStories = async (db: Db, o: { limit: number; perStory: number }) => {
+  const rows = await db
+    .select({
+      id: stories.id,
+      name: stories.name,
+      description: stories.description,
+      status: stories.status,
+      lastSeen: stories.lastSeen,
+      threadCount: stories.threadCount,
+    })
+    .from(stories)
+    .where(ne(stories.status, "merged"))
+    .orderBy(desc(stories.lastSeen))
+    .limit(o.limit)
+  const names = await storyExamples(
+    db,
+    rows.map((r) => r.id),
+    o.perStory,
+  )
+  return rows.map((r) => ({ ...r, threads: names.get(r.id) ?? [] }))
+}
 
 const HOUR = 3_600_000
 
