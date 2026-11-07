@@ -2,6 +2,11 @@
 
 Read this before changing anything. PLAN.md has the architecture and DEPLOY.md the one-time setup.
 
+## Production
+
+- The owner is the only user. We test in prod: ship changes straight to the live pipeline and judge them on real editions.
+- Don't add shadow modes, feature switches, staged rollouts or fallbacks only to protect the user experience, and don't hold a change back to stay conservative. Pushing still deploys, so push only when the owner asks.
+
 ## User-facing text
 
 Anything a reader sees: Telegram messages, dashboard pages, bot replies, digest headings.
