@@ -127,6 +127,13 @@
       "when": 1794051672989,
       "tag": "0017_event_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1794051800628,
+      "tag": "0018_interest",
+      "breakpoints": true
     }
   ]
 }

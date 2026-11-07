@@ -13,6 +13,7 @@ import {
   events,
   eventThreads,
   type FacetEntityKind,
+  interest,
   pairDecisions,
   relevance,
   sources,
@@ -198,7 +199,8 @@ const moveLinks = (
 
 /**
  * Fold one event into another: articles, entity and thread links, deliveries and shadow items move, the younger's
- * relevance rows and both codes go, and it is marked merged with zero counters. The caller recomputes the target's counters.
+ * relevance and interest rows and both codes go, and it is marked merged with zero counters. The caller recomputes
+ * the target's counters.
  */
 export const mergeEvents = (db: Db, fromId: number, intoId: number, now: number) =>
   runBatch(db, [
@@ -208,6 +210,7 @@ export const mergeEvents = (db: Db, fromId: number, intoId: number, now: number)
     db.update(deliveries).set({ eventId: intoId }).where(eq(deliveries.eventId, fromId)),
     db.update(digestsShadow).set({ eventId: intoId }).where(eq(digestsShadow.eventId, fromId)),
     db.delete(relevance).where(eq(relevance.eventId, fromId)),
+    db.delete(interest).where(eq(interest.eventId, fromId)),
     // The survivor is coded again from its new members, so both codes go.
     db.delete(eventActors).where(inArray(eventActors.eventId, [fromId, intoId])),
     db.delete(eventCodes).where(inArray(eventCodes.eventId, [fromId, intoId])),

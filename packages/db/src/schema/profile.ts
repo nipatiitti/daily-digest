@@ -1,5 +1,5 @@
 import { index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core"
-import { nowMs } from "./common.ts"
+import { flag, nowMs } from "./common.ts"
 import { events } from "./events.ts"
 import { llmCalls } from "./ops.ts"
 
@@ -89,6 +89,29 @@ export const relevance = sqliteTable(
   (t) => [primaryKey({ columns: [t.eventId, t.profileVersion] }), index("relevance_at_idx").on(t.at)],
 )
 
+/**
+ * Haiku's 0 to 3 interest of an event to one profile version: how far the reader's niche topics, regions and follows
+ * lift it. It never lowers anything; `muted` is set only when a mute describes the event.
+ */
+export const interest = sqliteTable(
+  "interest",
+  {
+    eventId: integer()
+      .notNull()
+      .references(() => events.id),
+    profileVersion: integer().notNull(),
+    level: integer().notNull(),
+    muted: flag(),
+    reason: text().notNull(),
+    /** The event's independent origins when scored; it is scored again once they double. */
+    originsAtScore: integer().notNull(),
+    llmCallId: integer().references(() => llmCalls.id),
+    at: nowMs(),
+  },
+  (t) => [primaryKey({ columns: [t.eventId, t.profileVersion] }), index("interest_at_idx").on(t.at)],
+)
+
 export type ProfileVersion = typeof profileVersions.$inferSelect
 export type ProfileProposal = typeof profileProposals.$inferSelect
 export type Relevance = typeof relevance.$inferSelect
+export type Interest = typeof interest.$inferSelect

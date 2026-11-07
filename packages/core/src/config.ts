@@ -317,6 +317,24 @@ export const CODING = {
   entitiesPerEvent: 12,
 }
 
+/**
+ * Interest: Haiku marks substantial events 0 to 3 against the profile, once per profile version and again once
+ * origins double. It only lifts: an edition multiplies significance by boost[level].
+ */
+export const INTEREST = {
+  /** The hourly run marks active events with an article this recently. */
+  recentHours: 72,
+  rescoreOriginsFactor: 2,
+  /** Events marked per run, latest article first, the rest waiting an hour. */
+  maxPerRun: 150,
+  perCall: 15,
+  /** Entity names shown per event, most mentioned first. */
+  entitiesPerEvent: 12,
+  boost: [1, 1.3, 1.7, 2.2] as readonly number[],
+  /** An event touching a follow counts at least this level. */
+  followLevel: 2,
+}
+
 /** Ranking in code: relevance / 100 x importance x freshness x vote penalty. */
 export const RANKING = {
   /**
