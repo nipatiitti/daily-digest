@@ -1,5 +1,6 @@
 import type { Db } from "@digest/db"
 import { alertsStep } from "./alerts.ts"
+import { codingStep } from "./coding.ts"
 import { consolidateStep } from "./hourly/consolidate.ts"
 import { momentumStep } from "./hourly/momentum.ts"
 import { moversStep } from "./hourly/movers.ts"
@@ -21,6 +22,7 @@ export const runHourly = async (env: Env, db: Db, llm: ReturnType<typeof llmFor>
     { name: "rollups", run: () => rollupStep(db, now) },
     { name: "momentum", run: () => momentumStep(db, now) },
     { name: "relevance", run: () => relevanceStep(db, llm, now) },
+    { name: "coding", run: () => codingStep(db, llm, now) },
     { name: "movers", run: () => moversStep(db, llm, now) },
     { name: "alerts", run: () => alertsStep(env, db, llm, now) },
   ]

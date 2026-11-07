@@ -41,6 +41,18 @@ const flags = $derived(
         {sanitizeUserText(e.relevance.reason)}
       </p>
     {/if}
+    {#if e.code}
+      {@const c = e.code}
+      {@const signed = (n: number) => (n > 0 ? `+${n}` : String(n))}
+      <p class="dd-body-sm text-ink-muted">
+        Coded {c.act.replaceAll("_", " ")}, {c.material ? "material" : "not material"}, significance {c.significance},
+        valence {signed(c.valence)}{#if c.stance !== null}, stance {signed(c.stance)}{/if}.
+        {#if c.actors.length}
+          {c.actors.map((a) => `${sanitizeUserText(a.name)} (${a.role})`).join(", ")}.
+        {/if}
+        {sanitizeUserText(c.reason)}
+      </p>
+    {/if}
   </header>
 
   {#each e.chips as g (g.label)}

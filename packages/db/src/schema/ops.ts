@@ -38,6 +38,7 @@ export const LLM_PURPOSES = [
   "reactions",
   "movers",
   "story",
+  "coding",
   ...DASHBOARD_LLM_PURPOSES,
 ] as const
 export type LlmPurpose = (typeof LLM_PURPOSES)[number]

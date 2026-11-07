@@ -299,6 +299,24 @@ export const RELEVANCE = {
   entitiesPerEvent: 12,
 }
 
+/**
+ * Event coding: Haiku codes substantial events from their newest reports, profile-free, latest article first. An
+ * event is coded again once its independent origins reach recodeOriginsFactor times those when coded, or grow after
+ * recodeAfterHours.
+ */
+export const CODING = {
+  perCall: 15,
+  maxPerRun: 200,
+  /** Events with an article this recently are coded hourly; older ones keep their code. */
+  backfillDays: 21,
+  recodeOriginsFactor: 2,
+  recodeAfterHours: 24,
+  /** Newest distinct titles and gists shown per event, origins first. */
+  titlesPerEvent: 3,
+  /** Entities offered as actors, most mentioned first, beside the event's countries. */
+  entitiesPerEvent: 12,
+}
+
 /** Ranking in code: relevance / 100 x importance x freshness x vote penalty. */
 export const RANKING = {
   /**

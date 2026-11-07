@@ -1,8 +1,7 @@
-import { articleSetHash, countryName, EDITION, eventCounters } from "@digest/core"
+import { articleSetHash, countryName, EDITION, eventCounters, reports } from "@digest/core"
 import {
   byEvent,
   type Db,
-  type EventMember,
   eventCopyRows,
   eventMembers,
   eventThreadLinks,
@@ -15,13 +14,6 @@ import { pickLinks, renderDigestItem } from "@digest/telegram"
 import { log } from "./util.ts"
 
 export type EventItem = { text: string; headline: string; threadId: number | null; origins: number }
-
-/** Distinct values, newest first and origins before copies, at most EDITION.copyReports. */
-const reports = (own: EventMember[], pick: (m: EventMember) => string) => {
-  const newest = own.toSorted((a, b) => b.publishedAt - a.publishedAt)
-  const origins = newest.filter((m) => m.originArticleId === null)
-  return [...new Set([...origins, ...newest].map(pick))].slice(0, EDITION.copyReports)
-}
 
 const sentenceCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
@@ -67,8 +59,8 @@ export const buildEventItems = async (
         profile,
         stale.map((e) => ({
           id: e.id,
-          titles: reports(e.own, (m) => m.titleEn),
-          gists: reports(e.own, (m) => m.gist),
+          titles: reports(e.own, (m) => m.titleEn, EDITION.copyReports),
+          gists: reports(e.own, (m) => m.gist, EDITION.copyReports),
         })),
       )
       if (o.persist) {

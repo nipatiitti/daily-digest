@@ -1,5 +1,6 @@
 export * from "./answers.ts"
 export * from "./client.ts"
+export * from "./coding.ts"
 export * from "./edition.ts"
 export * from "./events.ts"
 export * from "./facets.ts"

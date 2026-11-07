@@ -87,3 +87,14 @@ export const eventCounters = <T extends string>(members: CounterMember<T>[]) => 
     eventType: byFrequency(members.map((m) => m.eventType))[0] ?? lead.eventType,
   }
 }
+
+/** Distinct values of the members, newest first and origins before copies, at most `limit`. */
+export const reports = <M extends { publishedAt: number; originArticleId: number | null }>(
+  own: M[],
+  pick: (m: M) => string,
+  limit: number,
+) => {
+  const newest = own.toSorted((a, b) => b.publishedAt - a.publishedAt)
+  const origins = newest.filter((m) => m.originArticleId === null)
+  return [...new Set([...origins, ...newest].map(pick))].slice(0, limit)
+}

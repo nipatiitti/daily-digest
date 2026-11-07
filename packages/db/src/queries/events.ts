@@ -6,7 +6,9 @@ import {
   deliveries,
   digestsShadow,
   entities,
+  eventActors,
   eventArticles,
+  eventCodes,
   eventEntities,
   events,
   eventThreads,
@@ -196,7 +198,7 @@ const moveLinks = (
 
 /**
  * Fold one event into another: articles, entity and thread links, deliveries and shadow items move, the younger's
- * relevance rows go, and it is marked merged with zero counters. The caller recomputes the target's counters.
+ * relevance rows and both codes go, and it is marked merged with zero counters. The caller recomputes the target's counters.
  */
 export const mergeEvents = (db: Db, fromId: number, intoId: number, now: number) =>
   runBatch(db, [
@@ -206,6 +208,9 @@ export const mergeEvents = (db: Db, fromId: number, intoId: number, now: number)
     db.update(deliveries).set({ eventId: intoId }).where(eq(deliveries.eventId, fromId)),
     db.update(digestsShadow).set({ eventId: intoId }).where(eq(digestsShadow.eventId, fromId)),
     db.delete(relevance).where(eq(relevance.eventId, fromId)),
+    // The survivor is coded again from its new members, so both codes go.
+    db.delete(eventActors).where(inArray(eventActors.eventId, [fromId, intoId])),
+    db.delete(eventCodes).where(inArray(eventCodes.eventId, [fromId, intoId])),
     db.update(events).set({ mergedInto: intoId }).where(eq(events.mergedInto, fromId)),
     db
       .update(events)

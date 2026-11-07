@@ -1,5 +1,5 @@
-import { HOME } from "@digest/core"
-import { eventMembers, readEvent, resolveEventId } from "@digest/db"
+import { countryName, HOME } from "@digest/core"
+import { eventMembers, readEvent, readEventCode, resolveEventId } from "@digest/db"
 import { error, redirect } from "@sveltejs/kit"
 import { z } from "zod"
 import { countryChip, entityChip, threadChip } from "#lib/components/LinkChip.svelte"
@@ -12,12 +12,20 @@ export const eventPage = query(z.number().int().positive(), async (id) => {
   const live = await resolveEventId(d, id)
   if (live === null) error(404, `No event ${id}`)
   if (live !== id) redirect(307, `/events/${live}`)
-  const [e, members] = await Promise.all([readEvent(d, id, HOME.deliveries), eventMembers(d, [id])])
+  const [e, members, code] = await Promise.all([
+    readEvent(d, id, HOME.deliveries),
+    eventMembers(d, [id]),
+    readEventCode(d, id),
+  ])
   if (!e) error(404, `No event ${id}`)
   const outlets = new Map<string, typeof members>()
   for (const m of members) outlets.set(m.sourceName, [...(outlets.get(m.sourceName) ?? []), m])
   return {
     ...e,
+    code: code && {
+      ...code,
+      actors: code.actors.map((a) => ({ role: a.role, name: a.name ?? countryName(a.actor) })),
+    },
     outlets: [...outlets].map(([name, rows]) => ({
       name,
       role: rows[0]?.sourceRole,
