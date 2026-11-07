@@ -15,6 +15,10 @@ export type CutCandidate = {
   sources: string[]
   relevance: number
   reason: string
+  /** Independent outlets reporting it since the previous edition. */
+  outlets: number
+  /** Candidates with the same number tell one running story. */
+  storyline: number
   cooledThread: { lastSentHeadline: string } | null
 }
 
@@ -22,19 +26,24 @@ const candidateBlock = (c: CutCandidate) => `<candidate id="${c.id}">
 <title>${tagText(c.title)}</title>
 <gist>${tagText(c.gist)}</gist>
 <thread>${tagText(c.threadName ?? "none")}</thread>
+<storyline>${c.storyline}</storyline>
 <countries>${countryList(c.countries)}</countries>
 <sources>${tagText(c.sources.join(", "))}</sources>
+<outlets>${c.outlets}</outlets>
 <relevance>${c.relevance}</relevance>
 <reason>${tagText(c.reason)}</reason>${c.cooledThread ? `\n<sent_last_time>${tagText(c.cooledThread.lastSentHeadline)}</sent_last_time>` : ""}
 </candidate>`
 
-const CUT = `You make the final cut for one edition of a reader's personal news digest. The candidates come ranked by relevance to the reader's profile.
+const CUT = `You make the final cut for one edition of a reader's personal news digest. The candidates come ranked by relevance to the reader's profile, importance and freshness, already spread across running stories.
+
+Each candidate has a storyline number: candidates with the same number tell one running story, such as one conflict or one negotiation, even when their threads differ. Outlets counts the independent outlets that reported it since the last edition.
 
 ${DATA_RULE}
 
 Pick the items for the edition and return their ids in reading order, the most important first:
 Never pick two candidates about the same event; keep the one with the better title and gist.
-Spread the edition across threads, countries, regions and sources; do not fill it with one development. Pick at most two candidates about the same conflict, country or bloc, and reach for the rest of the world before a third.
+Spread the edition across storylines, countries, regions and sources; do not fill it with one development. Pick at most two candidates from one storyline, and at most two about the same conflict, country or bloc; reach for the rest of the world before a third.
+An incremental update to a running story, a statement, a warning or a claim, is worth less than a decision, a turning point or news from elsewhere the reader has not seen.
 A candidate with sent_last_time belongs to a thread the reader got in a recent edition. Keep it only when the development materially moved since that headline, not when it repeats or adds detail.
 Return at least the minimum and at most the maximum asked, but return fewer than the minimum rather than pad the edition with weak items.`
 

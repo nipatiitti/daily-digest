@@ -10,7 +10,7 @@ history before 3 Nov 2026. AGENTS.md has the working rules, DEPLOY.md the one-ti
 | What is relevant | An editable interest profile (`profile_versions`), adjusted by votes through accepted proposals           |
 | Unit of news     | An event (one real-world happening), clustered from English gists of articles                             |
 | Unit of trends   | A thread (a development over days or weeks); volume counted from its events' articles                     |
-| Ranking          | `relevance x importance x freshness x vote penalty`, in code; Haiku writes only the 0 to 100 relevance    |
+| Ranking          | `relevance x importance x freshness x vote penalty x storyline exposure`, in code; Haiku writes relevance |
 | Digest           | Two editions, `0 6 * * *` and `0 15 * * *`; a Haiku final cut, then Sonnet copy for the picks only        |
 | Embeddings       | `@cf/baai/bge-m3`, 1024-d, cosine, over `titleEn` and `gist`, in Vectorize `digest-gists`                 |
 | Dashboard        | Reader first: Home, threads, entities, countries, events, profile, digest archive, one status page        |
@@ -41,8 +41,10 @@ history before 3 Nov 2026. AGENTS.md has the working rules, DEPLOY.md the one-ti
      five;
    - alerts: followed threads and entities with an official source or a velocity spike, only in send mode.
 4. **Editions** (`digest-v2` Workflow, `apps/pipeline/src/digest-v2.ts`): candidates changed since the previous
-   edition, ranked in code, thread cooldown over the last two editions, a Haiku final cut of the top 15 to 5 to 8
-   items, Sonnet copy for the picks, tags from the thread or the countries. `mode` is `send`, `shadow` (writes
+   edition, ranked in code and lowered per recent item of their storyline (`STORYLINE`: gist centroid and shared
+   entities, `core/src/storyline.ts`), thread cooldown over the last two editions, 15 candidates spread across
+   storylines, a Haiku final cut to 5 to 8 items with at most two per storyline, Sonnet copy for the picks, tags from
+   the thread or the countries. `mode` is `send`, `shadow` (writes
    `digests_shadow` at the crons) or `replay` (a past edition as of its send time, `scripts/replay-editions.ts`).
 5. **Nightly** (03:30 UTC): close quiet events, database stats, and the reactions step that turns new
    votes into `profile_proposals` for `/profile`.

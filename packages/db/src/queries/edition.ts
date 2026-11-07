@@ -1,20 +1,4 @@
-import {
-  and,
-  desc,
-  eq,
-  getTableColumns,
-  gt,
-  gte,
-  inArray,
-  isNotNull,
-  isNull,
-  lt,
-  lte,
-  ne,
-  or,
-  type SQL,
-  sql,
-} from "drizzle-orm"
+import { and, desc, eq, getTableColumns, gt, gte, inArray, isNull, lt, lte, ne, or, type SQL, sql } from "drizzle-orm"
 import { chunkRows, type Db, runBatch, selectIn } from "../client.ts"
 import {
   articles,
@@ -204,61 +188,90 @@ export const sentEvents = async (db: Db, mode: "send" | ShadowMode, ids: number[
 
 const headline = sql<string>`coalesce(${events.headline}, ${events.title})`
 
-/**
- * Items with a thread in the latest `editions` editions of this mode before `before`, newest first, with the event's
- * headline and its independent origins when sent (counted as of the shadow edition for shadow modes). A delivery
- * sent without a thread counts with its event's primary thread now.
- */
-export const recentThreadItems = async (
+export type RecentItem = {
+  eventId: number
+  /** The thread it was sent with, else its event's primary thread now; null when it has none. */
+  threadId: number | null
+  headline: string
+  /** Independent origins when sent (counted as of the shadow edition for shadow modes). */
+  origins: number
+  /** 0 for the latest edition before `before`, 1 for the one before it, and so on. */
+  edition: number
+}
+
+/** Items of the latest `editions` editions of this mode before `before`, newest first, each event once. */
+export const recentItems = async (
   db: Db,
   mode: "send" | ShadowMode,
   before: number,
   editions: number,
-): Promise<{ threadId: number | null; headline: string; origins: number }[]> => {
-  if (mode === "send") {
-    const recent = db
-      .select({ key: digests.digestDate })
-      .from(digests)
-      .where(and(eq(digests.status, "sent"), lt(digests.sentAt, before)))
-      .orderBy(desc(digests.sentAt))
-      .limit(editions)
-    const rows = await db
-      .select({
-        eventId: events.id,
-        threadId: deliveries.threadId,
-        headline,
-        origins: sql<number>`coalesce(${deliveries.originsAtSend}, 0)`,
-      })
-      .from(deliveries)
-      .innerJoin(events, eq(events.id, deliveries.eventId))
-      .where(inArray(deliveries.digestDate, recent))
-      .orderBy(desc(deliveries.sentAt))
-    const primary = await eventThreadLinks(
-      db,
-      rows.flatMap((r) => (r.threadId === null ? [r.eventId] : [])),
-    )
-    return rows.flatMap((r) => {
-      const threadId = r.threadId ?? primary.get(r.eventId)?.[0]?.threadId ?? null
-      return threadId === null ? [] : [{ threadId, headline: r.headline, origins: r.origins }]
-    })
-  }
-  const keys = (await shadowEditions(db, mode, before, editions)).map((e) => e.key)
-  return db
-    .select({
-      threadId: digestsShadow.threadId,
-      headline,
-      origins: sql<number>`(select count(*) from ${eventArticles}
-        inner join ${articles} on ${articles.id} = ${eventArticles.articleId}
-        where ${eventArticles.eventId} = ${digestsShadow.eventId} and ${eventArticles.originArticleId} is null
-        and ${articles.fetchedAt} <= ${digestsShadow.asOf})`,
-    })
-    .from(digestsShadow)
-    .innerJoin(events, eq(events.id, digestsShadow.eventId))
-    .where(
-      and(eq(digestsShadow.mode, mode), inArray(digestsShadow.editionKey, keys), isNotNull(digestsShadow.threadId)),
-    )
-    .orderBy(desc(digestsShadow.asOf), digestsShadow.rank)
+): Promise<RecentItem[]> => {
+  const keys =
+    mode === "send"
+      ? (
+          await db
+            .select({ key: digests.digestDate })
+            .from(digests)
+            .where(and(eq(digests.status, "sent"), lt(digests.sentAt, before)))
+            .orderBy(desc(digests.sentAt))
+            .limit(editions)
+        ).map((r) => r.key)
+      : (await shadowEditions(db, mode, before, editions)).map((e) => e.key)
+  if (keys.length === 0) return []
+  const rows =
+    mode === "send"
+      ? await db
+          .select({
+            eventId: events.id,
+            threadId: deliveries.threadId,
+            key: sql<string>`${deliveries.digestDate}`,
+            headline,
+            origins: sql<number>`coalesce(${deliveries.originsAtSend}, 0)`,
+          })
+          .from(deliveries)
+          .innerJoin(events, eq(events.id, deliveries.eventId))
+          .where(inArray(deliveries.digestDate, keys))
+          .orderBy(desc(deliveries.sentAt))
+      : await db
+          .select({
+            eventId: events.id,
+            threadId: digestsShadow.threadId,
+            key: digestsShadow.editionKey,
+            headline,
+            origins: sql<number>`(select count(*) from ${eventArticles}
+              inner join ${articles} on ${articles.id} = ${eventArticles.articleId}
+              where ${eventArticles.eventId} = ${digestsShadow.eventId} and ${eventArticles.originArticleId} is null
+              and ${articles.fetchedAt} <= ${digestsShadow.asOf})`,
+          })
+          .from(digestsShadow)
+          .innerJoin(events, eq(events.id, digestsShadow.eventId))
+          .where(and(eq(digestsShadow.mode, mode), inArray(digestsShadow.editionKey, keys)))
+          .orderBy(desc(digestsShadow.asOf), digestsShadow.rank)
+  const rank = new Map(keys.map((k, i) => [k, i]))
+  const seen = new Set<number>()
+  const unique = rows.filter((r) => !seen.has(r.eventId) && seen.add(r.eventId))
+  const primary = await eventThreadLinks(
+    db,
+    unique.flatMap((r) => (r.threadId === null ? [r.eventId] : [])),
+  )
+  return unique.map((r) => ({
+    eventId: r.eventId,
+    threadId: r.threadId ?? primary.get(r.eventId)?.[0]?.threadId ?? null,
+    headline: r.headline,
+    origins: r.origins,
+    edition: rank.get(r.key) ?? 0,
+  }))
 }
+
+/** Each event's gist centroid. */
+export const eventCentroids = async (db: Db, ids: number[]) =>
+  new Map(
+    (
+      await selectIn(db, ids, 1, (chunk) =>
+        db.select({ id: events.id, centroid: events.centroid }).from(events).where(inArray(events.id, chunk)),
+      )
+    ).map((r) => [r.id, r.centroid]),
+  )
 
 /** A rerun of a shadow edition replaces its rows. */
 export const clearShadow = (db: Db, key: string, mode: ShadowMode) =>

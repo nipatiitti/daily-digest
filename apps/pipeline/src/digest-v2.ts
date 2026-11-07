@@ -5,12 +5,17 @@ import {
   type Edition,
   editionKey,
   eventCounters,
+  exposurePenalty,
   freshness,
   HOUR_MS,
   importance,
   isSubstantial,
   RANKING,
   rankScore,
+  STORYLINE,
+  spreadPick,
+  storyline,
+  storylineGroups,
   votePenalty,
 } from "@digest/core"
 import {
@@ -20,6 +25,7 @@ import {
   clearShadow,
   currentProfile,
   type Db,
+  eventCentroids,
   eventEntityLinks,
   eventMembers,
   eventThreadLinks,
@@ -29,7 +35,7 @@ import {
   markShadowEdition,
   previousSentStart,
   previousShadowAsOf,
-  recentThreadItems,
+  recentItems,
   saveShadow,
   sentEvents,
   voteBalances,
@@ -99,11 +105,14 @@ const replayRelevance = async (db: Db, llm: Llm | null, c: Candidates): Promise<
 }
 
 /**
- * Relevance filters, rank, thread cooldown and the Haiku cut, one item per thread. A candidate whose primary thread
- * was sent in the latest EDITION.threadCooldownEditions editions goes to the cut with that headline only when its
- * origins reached EDITION.cooldownOriginsFactor times those of the thread's last item, or it ranks in the top half;
- * the cut sees the last headline and decides whether the thread moved. Without an LLM, or capped or refused, the top
- * EDITION.maxItems go, and the top-half exemption does not hold: a cooled thread needs the origins factor.
+ * Relevance filters, rank, cooldown, the spread and the Haiku cut, then at most one item per thread and
+ * STORYLINE.maxPerEdition per storyline. Each item sent in the latest STORYLINE.exposureEditions editions in a
+ * candidate's storyline lowers its score (exposurePenalty). A candidate whose primary thread was sent in the
+ * latest EDITION.threadCooldownEditions editions goes on with that headline only when its origins reached
+ * EDITION.cooldownOriginsFactor times those of that item, or it ranks among the first EDITION.cooldownExemptRanks; the
+ * cut sees the last headline and decides whether the story moved. The EDITION.candidates offered are spread across
+ * storylines (spreadPick). Without an LLM, or capped or refused, the offered candidates go in order, and the rank
+ * exemption does not hold: a cooled one needs the origins factor.
  */
 const select = async (
   db: Db,
@@ -124,47 +133,70 @@ const select = async (
     eventThreadLinks(db, ids),
     eventEntityLinks(db, ids),
     voteBalances(db, asOf - RANKING.voteWindowDays * DAY_MS, asOf),
-    recentThreadItems(db, mode, asOf, EDITION.threadCooldownEditions),
+    recentItems(db, mode, asOf, Math.max(EDITION.threadCooldownEditions, STORYLINE.exposureEditions)),
   ])
-  const counts = { unscored: 0, lowRelevance: 0, advisoryHeld: 0, cooled: 0 }
-  const ranked = c.rows
-    .flatMap((r) => {
-      const rel = scores.get(r.id)
-      const own = { threads: threads.get(r.id) ?? [], entities: entities.get(r.id) ?? [] }
-      const followed = followedName(current.profile.follows, own.threads, own.entities, r.countriesJson)
-      if (!rel) counts.unscored++
-      else if (rel.score < EDITION.minRelevance) counts.lowRelevance++
-      else if (r.advisoryOnly && !followed && rel.score < EDITION.advisoryMinRelevance) counts.advisoryHeld++
-      else {
-        const thread = own.threads[0] ?? null
-        const worst = Math.min(
-          thread ? (votes.threads.get(thread.threadId) ?? 0) : 0,
-          ...own.entities.map((e) => votes.entities.get(e.entityId) ?? 0),
-        )
-        const score = rankScore(rel.score, importance(r.recent), freshness(r.lastArticleAt, asOf), votePenalty(worst))
-        return [{ r, rel, thread, score }]
-      }
-      return []
+  const counts = { unscored: 0, lowRelevance: 0, advisoryHeld: 0, cooled: 0, exposed: 0 }
+  const eligible = c.rows.flatMap((r) => {
+    const rel = scores.get(r.id)
+    const own = { threads: threads.get(r.id) ?? [], entities: entities.get(r.id) ?? [] }
+    const followed = followedName(current.profile.follows, own.threads, own.entities, r.countriesJson)
+    if (!rel) counts.unscored++
+    else if (rel.score < EDITION.minRelevance) counts.lowRelevance++
+    else if (r.advisoryOnly && !followed && rel.score < EDITION.advisoryMinRelevance) counts.advisoryHeld++
+    else {
+      const thread = own.threads[0] ?? null
+      const worst = Math.min(
+        thread ? (votes.threads.get(thread.threadId) ?? 0) : 0,
+        ...own.entities.map((e) => votes.entities.get(e.entityId) ?? 0),
+      )
+      return [{ r, rel, thread, penalty: votePenalty(worst) }]
+    }
+    return []
+  })
+
+  const sentIds = recent.map((i) => i.eventId)
+  const [centroids, sentEntities] = await Promise.all([
+    eventCentroids(db, [...eligible.map((x) => x.r.id), ...sentIds]),
+    eventEntityLinks(db, sentIds),
+  ])
+  const lineOf = (id: number, links: Map<number, { key: string }[]>) =>
+    storyline(
+      centroids.get(id) ?? null,
+      (links.get(id) ?? []).map((e) => e.key),
+    )
+  // Newest first, so a cooled candidate meets its thread's latest item.
+  const sent = recent.map((i) => ({ ...i, line: lineOf(i.eventId, sentEntities) }))
+  const exposedTo = sent.filter((i) => i.edition < STORYLINE.exposureEditions).map((i) => i.line)
+  const cooling = sent.filter((i) => i.edition < EDITION.threadCooldownEditions)
+
+  const ranked = eligible
+    .map((x) => {
+      const line = lineOf(x.r.id, entities)
+      const exposure = exposurePenalty(line, exposedTo)
+      if (exposure < 1) counts.exposed++
+      const base = rankScore(x.rel.score, importance(x.r.recent), freshness(x.r.lastArticleAt, asOf), x.penalty)
+      return { ...x, line, score: base * exposure }
     })
     .sort((a, b) => b.score - a.score)
 
-  const lastSent = new Map<number, { headline: string; origins: number }>()
-  // Newest first, so each thread keeps its last item.
-  for (const item of recent) {
-    if (item.threadId !== null && !lastSent.has(item.threadId)) lastSent.set(item.threadId, item)
-  }
-  const topHalf = Math.ceil(ranked.length / 2)
   type Pooled = (typeof ranked)[number] & { cooledThread: { lastSentHeadline: string } | null; moved: boolean }
-  const pool = ranked
-    .flatMap((x, i): Pooled[] => {
-      const last = x.thread && lastSent.get(x.thread.threadId)
-      if (!last) return [{ ...x, cooledThread: null, moved: false }]
-      const moved = x.r.independentOrigins >= EDITION.cooldownOriginsFactor * last.origins
-      if (moved || i < topHalf) return [{ ...x, cooledThread: { lastSentHeadline: last.headline }, moved }]
-      counts.cooled++
-      return []
-    })
-    .slice(0, EDITION.candidates)
+  const warm = ranked.flatMap((x, i): Pooled[] => {
+    const last = x.thread && cooling.find((s) => s.threadId === x.thread?.threadId)
+    if (!last) return [{ ...x, cooledThread: null, moved: false }]
+    const moved = x.r.independentOrigins >= EDITION.cooldownOriginsFactor * last.origins
+    if (moved || i < EDITION.cooldownExemptRanks)
+      return [{ ...x, cooledThread: { lastSentHeadline: last.headline }, moved }]
+    counts.cooled++
+    return []
+  })
+  const pool = spreadPick(
+    warm,
+    EDITION.candidates,
+    (x) => x.line,
+    (x) => x.score,
+  )
+  const groups = storylineGroups(pool, (x) => x.line)
+  const storylineOf = new Map(pool.map((x, i) => [x.r.id, groups[i] ?? 0]))
 
   let cut = "llm"
   let cutIds: number[] | null = null
@@ -181,6 +213,8 @@ const select = async (
           sources: x.r.sources,
           relevance: x.rel.score,
           reason: x.rel.reason,
+          outlets: x.r.recent.independentOrigins,
+          storyline: storylineOf.get(x.r.id) ?? 0,
           cooledThread: x.cooledThread,
         }),
       )
@@ -192,11 +226,15 @@ const select = async (
   }
   const byId = new Map(pool.map((x) => [x.r.id, x]))
   const seenThreads = new Set<number>()
+  const perStoryline = new Map<number, number>()
   const picked = (cutIds ? cutIds.flatMap((id) => byId.get(id) ?? []) : pool.filter((x) => !x.cooledThread || x.moved))
     .filter((x) => {
-      if (!x.thread) return true
-      if (seenThreads.has(x.thread.threadId)) return false
-      seenThreads.add(x.thread.threadId)
+      if (x.thread && seenThreads.has(x.thread.threadId)) return false
+      const group = storylineOf.get(x.r.id) ?? 0
+      const n = perStoryline.get(group) ?? 0
+      if (n >= STORYLINE.maxPerEdition) return false
+      if (x.thread) seenThreads.add(x.thread.threadId)
+      perStoryline.set(group, n + 1)
       return true
     })
     .slice(0, EDITION.maxItems)
@@ -210,6 +248,7 @@ const select = async (
     ...counts,
     ranked: ranked.length,
     offered: pool.length,
+    storylines: new Set(groups).size,
     cut,
     picked: picked.map((x) => x.r.id),
   })
@@ -283,7 +322,13 @@ export class DigestV2 extends WorkflowEntrypoint<Env, DigestV2Params> {
         )
       })
       await step.do("mark edition", async () => {
-        await markShadowEdition(db, mode, key, asOf, EDITION.threadCooldownEditions)
+        await markShadowEdition(
+          db,
+          mode,
+          key,
+          asOf,
+          Math.max(EDITION.threadCooldownEditions, STORYLINE.exposureEditions),
+        )
       })
       return { key, mode, items: items.length, headlines }
     }

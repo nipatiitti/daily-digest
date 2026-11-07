@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 29
+export const CONFIG_VERSION = 30
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -301,10 +301,14 @@ export const EDITION = {
   minRelevance: 40,
   /** An advisory-only event needs this unless it touches a follow. */
   advisoryMinRelevance: 80,
-  /** A thread sent in this many latest editions cools, unless its origins reached the factor or it ranks top half. */
+  /**
+   * A candidate whose thread was sent in this many latest editions cools, unless its origins reached the factor times
+   * those of that item, or it ranks among the first cooldownExemptRanks after the exposure penalty.
+   */
   threadCooldownEditions: 2,
   cooldownOriginsFactor: 2,
-  /** Top candidates offered to the Haiku cut, which keeps between minItems and maxItems. */
+  cooldownExemptRanks: 3,
+  /** Candidates offered to the Haiku cut, spread across storylines, which keeps between minItems and maxItems. */
   candidates: 15,
   minItems: 5,
   maxItems: 8,
@@ -312,6 +316,24 @@ export const EDITION = {
   copyReports: 6,
   /** Countries a tag names when the event has no active thread. */
   tagCountries: 2,
+}
+
+/**
+ * Storylines: events that tell one running story, so one development cannot fill an edition. Two events share one
+ * when their gist centroids reach `cosine` and `sharedEntities` of their `topEntities` most mentioned entities match.
+ */
+export const STORYLINE = {
+  cosine: 0.55,
+  topEntities: 6,
+  sharedEntities: 2,
+  /** Offering the cut, a candidate's score is multiplied by this per candidate already offered in its storyline. */
+  spreadFactor: 0.5,
+  /** Items an edition keeps from one storyline, after the cut. */
+  maxPerEdition: 2,
+  /** Each item sent in the latest exposureEditions editions in the candidate's storyline multiplies its score by this. */
+  exposureEditions: 4,
+  exposureFactor: 0.9,
+  exposureFloor: 0.6,
 }
 
 /** The status, profile and digest archive pages. */
