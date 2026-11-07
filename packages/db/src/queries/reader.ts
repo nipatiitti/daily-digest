@@ -165,7 +165,7 @@ export const readThreads = (db: Db, o: { provisional: boolean; limit: number }) 
       lastSeen: threads.lastSeen,
       momentum24h: threads.momentum24h,
       momentum7d: threads.momentum7d,
-      storyName: stories.name,
+      storyName: sql<string | null>`${stories.name}`.as("story_name"),
     })
     .from(threads)
     .leftJoin(stories, eq(stories.id, threads.storyId))

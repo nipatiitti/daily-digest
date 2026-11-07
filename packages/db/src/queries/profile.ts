@@ -172,7 +172,7 @@ export const reactionVotes = async (db: Db, since: number, until: number) => {
       headline: sql<string>`coalesce(${events.headline}, ${events.title})`,
       summary: sql<string>`coalesce(${events.summary}, ${events.gist})`,
       threadName: threads.name,
-      storyName: stories.name,
+      storyName: sql<string | null>`${stories.name}`.as("story_name"),
       countries: events.countriesJson,
       roles: roles(sql`from ${eventArticles} join ${articles} on ${articles.id} = ${eventArticles.articleId}
         join ${sources} on ${sources.id} = ${articles.sourceId} where ${eventArticles.eventId} = ${deliveries.eventId}`),

@@ -39,8 +39,9 @@ export const eventThreadLinks = async (db: Db, ids: number[]) =>
           threadId: threads.id,
           name: threads.name,
           status: threads.status,
-          storyId: stories.id,
-          storyName: stories.name,
+          // Aliased: batched D1 rows come back keyed by column name, so a second id or name would overwrite the first.
+          storyId: sql<number | null>`${stories.id}`.as("story_id"),
+          storyName: sql<string | null>`${stories.name}`.as("story_name"),
         })
         .from(eventThreads)
         .innerJoin(threads, eq(threads.id, eventThreads.threadId))
