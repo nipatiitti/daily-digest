@@ -1,5 +1,5 @@
 /** Bump when any number below changes; stored with feedback so ratings can be refit. */
-export const CONFIG_VERSION = 32
+export const CONFIG_VERSION = 33
 
 export const FETCH = {
   timeoutMs: 15_000,
@@ -316,9 +316,9 @@ export const INTEREST = {
   perCall: 15,
   /** Entity names shown per event, most mentioned first. */
   entitiesPerEvent: 12,
-  boost: [1, 1.3, 1.7, 2.2] as readonly number[],
-  /** An event touching a follow counts at least this level. */
-  followLevel: 2,
+  boost: [1, 1.25, 1.5, 1.8] as readonly number[],
+  /** An event touching a follow counts at least this level; a mute still holds it. */
+  followLevel: 1,
 }
 
 /** Corroboration in code: how widely and how fast independent outlets report an event, 0 to 1. */
@@ -355,7 +355,14 @@ export const EDITION = {
   muteOverride: 75,
   maxItems: 8,
   /** Groups past maxItems whose copy is written too, standing in for items the copy skips as talk. */
-  copySpare: 3,
+  copySpare: 5,
+  /** Copy rounds while skips leave the edition short and qualified groups remain. */
+  copyRounds: 2,
+  /**
+   * Items rank by significance x boost ^ rankBoost, not by the gate: the boost lifts a niche item over the bar at full
+   * strength but orders it among the rest at its square root, so interests cannot crowd the world out.
+   */
+  rankBoost: 0.5,
   /** Corroboration is floor + (1 - floor) x importance, so one strong outlet is not ruled out. */
   corroborationFloor: 0.6,
   /** Member reports, origins first, whose titles and gists Sonnet sees per item. */
@@ -366,7 +373,10 @@ export const EDITION = {
 
 /** The story change judgment: one Haiku call per perCall story groups that clear the gate, no profile. */
 export const JUDGE = {
-  perCall: 12,
+  perCall: 8,
+  /** Output tokens: a base plus this per story, for its carriers and reason. */
+  baseTokens: 1024,
+  tokensPerStory: 320,
   /** Coded events shown per story group, material first, then by significance. */
   eventsPerGroup: 8,
 }

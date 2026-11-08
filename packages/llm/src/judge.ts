@@ -1,4 +1,4 @@
-import { sanitizeUserText } from "@digest/core"
+import { JUDGE, sanitizeUserText } from "@digest/core"
 import { STORY_CHANGES, type StoryChange } from "@digest/db"
 import { z } from "zod"
 import type { Llm } from "./client.ts"
@@ -79,8 +79,8 @@ export const judgeChanges = async (llm: Llm, stories: JudgeStory[]) => {
     cacheSystem: true,
     prompt: `${stories.map(storyBlock).join("\n\n")}\n\nJudge every story by its id.`,
     schema: JudgeOut,
-    maxTokens: 512 + 120 * stories.length,
-    effort: "medium",
+    maxTokens: JUDGE.baseTokens + JUDGE.tokensPerStory * stories.length,
+    effort: "low",
   })
   const offered = new Map(stories.map((s) => [s.id, new Set(s.events.map((e) => e.id))]))
   const out = new Map<number, StoryJudgment>()

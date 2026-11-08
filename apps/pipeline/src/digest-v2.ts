@@ -51,7 +51,7 @@ import { codingStep } from "./coding.ts"
 import { storiesStep } from "./hourly/stories.ts"
 import { sortEvents } from "./hourly/threads.ts"
 import { followedName, interestStep, replayInterest } from "./interest.ts"
-import { buildStoryItems, type ItemGroup } from "./items.ts"
+import { buildStoryItems, type ItemGroup, type StoryItem } from "./items.ts"
 import { llmFor } from "./llm.ts"
 import { inSteps, sendDelivery } from "./send.ts"
 import { log } from "./util.ts"
@@ -186,7 +186,7 @@ const compose = async (
     const gate = code ? gateOf(code.significance, level) : null
     const outcome: Outcome | null = !code
       ? "uncoded"
-      : mark?.muted && !followed && code.significance < EDITION.muteOverride
+      : mark?.muted && code.significance < EDITION.muteOverride
         ? "muted"
         : !code.material
           ? "talk"
@@ -270,7 +270,7 @@ const compose = async (
       threadId: lead.thread?.threadId ?? null,
       lastBrief: brief ? { headline: brief.headline, summary: brief.summary, at: brief.at } : null,
       gate: lead.gate,
-      score: itemScore(lead.gate, lead.imp, freshness(lead.r.lastArticleAt, asOf)),
+      score: itemScore(lead.code?.significance ?? 0, lead.level, lead.imp, freshness(lead.r.lastArticleAt, asOf)),
     })
   }
   planned.sort((a, b) => b.score - a.score)
@@ -354,14 +354,21 @@ export class DigestV2 extends WorkflowEntrypoint<Env, DigestV2Params> {
     const items = await step.do("render", async () => {
       const current = composed.planned.length > 0 ? await currentProfile(db) : null
       if (!current) return []
-      const tried = composed.planned.slice(0, EDITION.maxItems + EDITION.copySpare)
-      const built = await buildStoryItems(db, llm, p.profile ?? current.profile, tried, asOf, {
-        persist: mode === "send",
-      })
-      return tried.flatMap((g) => {
-        const item = built.get(g.leadId)
-        return item ? [{ ...g, ...item }] : []
-      })
+      const out: (Planned & StoryItem)[] = []
+      for (let round = 0, at = 0; round < EDITION.copyRounds && at < composed.planned.length; round++) {
+        const short = EDITION.maxItems - out.filter((i) => !i.skip).length
+        if (short <= 0) break
+        const tried = composed.planned.slice(at, at + short + EDITION.copySpare)
+        at += tried.length
+        const built = await buildStoryItems(db, llm, p.profile ?? current.profile, tried, asOf, {
+          persist: mode === "send",
+        })
+        for (const g of tried) {
+          const item = built.get(g.leadId)
+          if (item) out.push({ ...g, ...item })
+        }
+      }
+      return out
     })
     const kept = items.filter((i) => !i.skip).slice(0, EDITION.maxItems)
     const keptIds = new Set(kept.map((i) => i.leadId))

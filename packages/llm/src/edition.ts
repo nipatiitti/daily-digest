@@ -31,7 +31,7 @@ For every item write:
 headline: at most 12 words, sentence case, no trailing full stop.
 summary: exactly one sentence of at most 30 words with the concrete facts: who, what, where and the numbers that matter.
 Both describe the latest development the newest reports give, not how the story began. With a last_brief, write only what changed since it; never repeat what it already said. Never explain why the item matters or why the reader gets it; the reader can judge that.
-skip: true when the reports add nothing that changed since the last_brief, or say only talk: statements, threats, warnings, plans, proposals, claims, predictions, analysis or opinion, talks announced or said to go well. Still write the copy. Otherwise false.
+skip: true only when the reports describe no new event at all: nothing changed since the last_brief, or there is only talk, such as statements, threats, warnings, plans, proposals, claims, predictions, analysis or opinion, talks announced or said to go well. An action, decision, appointment, result, release, disclosure, attack or accident is never skipped, however small, and never skip for importance or for the reader's interests: other steps judged those. Still write the copy. Otherwise false.
 Write only what the reports say. ${WRITING_RULE}`
 
 const CopyOut = z.object({

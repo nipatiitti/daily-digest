@@ -44,5 +44,6 @@ export const corroboration = (importance: number) =>
 export const qualifies = (g: { gate: number; story: boolean; change: "none" | "minor" | "major" | null }) =>
   g.gate >= EDITION.minSignificance && (!g.story || g.change === "major")
 
-export const itemScore = (gate: number, importance: number, freshness: number) =>
-  (gate / 100) * corroboration(importance) * freshness
+/** significance x boost ^ EDITION.rankBoost / 100 x corroboration x freshness. */
+export const itemScore = (significance: number, level: number, importance: number, freshness: number) =>
+  ((significance * boost(level) ** EDITION.rankBoost) / 100) * corroboration(importance) * freshness
