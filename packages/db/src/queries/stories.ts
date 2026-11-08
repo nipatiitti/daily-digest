@@ -36,7 +36,7 @@ export const storyDueThreads = (
     ),
   )
   if ("threadIds" in o) {
-    return selectIn(db, o.threadIds, 1, (chunk) =>
+    return selectIn(db, o.threadIds, 2, (chunk) =>
       db
         .select(threadRow)
         .from(threads)

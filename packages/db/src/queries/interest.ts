@@ -34,7 +34,7 @@ export const interestTargets = (
           or(isNull(interest.eventId), gte(events.independentOrigins, sql`${o.factor} * ${interest.originsAtScore}`)),
         ),
       )
-  if ("eventIds" in o) return selectIn(db, o.eventIds, 1, (chunk) => due(inArray(events.id, chunk)))
+  if ("eventIds" in o) return selectIn(db, o.eventIds, 2, (chunk) => due(inArray(events.id, chunk)))
   return due(and(eq(events.status, "active"), gte(events.lastArticleAt, o.since)))
 }
 
@@ -65,7 +65,7 @@ export const saveInterest = (db: Db, rows: (typeof interest.$inferInsert)[]) =>
 export const interestFor = async (db: Db, ids: number[], version: number) =>
   new Map(
     (
-      await selectIn(db, ids, 1, (chunk) =>
+      await selectIn(db, ids, 2, (chunk) =>
         db
           .select({ eventId: interest.eventId, level: interest.level, muted: interest.muted, reason: interest.reason })
           .from(interest)

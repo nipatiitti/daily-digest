@@ -37,7 +37,7 @@ export const codingTargets = (
           ),
         ),
       )
-  if ("eventIds" in o) return selectIn(db, o.eventIds, 1, (chunk) => due(inArray(events.id, chunk)))
+  if ("eventIds" in o) return selectIn(db, o.eventIds, 2, (chunk) => due(inArray(events.id, chunk)))
   return due(gte(events.lastArticleAt, o.since)).orderBy(desc(events.lastArticleAt), desc(events.id)).limit(o.limit)
 }
 

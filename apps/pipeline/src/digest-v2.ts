@@ -14,6 +14,7 @@ import {
   itemScore,
   JUDGE,
   qualifies,
+  THREADS,
 } from "@digest/core"
 import {
   byEvent,
@@ -99,7 +100,21 @@ const prepare = (step: WorkflowStep, db: Db, llm: Llm | null, c: Candidates, p: 
   const eventIds = c.rows.map((r) => r.id)
   return {
     coding: () => step.do("coding", () => codingStep(db, llm, Date.now(), { eventIds })),
-    threads: () => step.do("threads", () => sortEvents(db, llm, Date.now(), { eventIds })),
+    /**
+     * Only material events whose significance could reach the bar with the largest boost: an unthreaded one would
+     * otherwise go out as storyless. The strongest first, at most THREADS.maxEventsPerRun.
+     */
+    threads: () =>
+      step.do("threads", async () => {
+        const codes = await codesFor(db, eventIds)
+        const floor = EDITION.minSignificance / Math.max(...INTEREST.boost)
+        const worth = [...codes.values()]
+          .filter((c) => c.material && c.significance >= floor)
+          .sort((a, b) => b.significance - a.significance)
+          .slice(0, THREADS.maxEventsPerRun)
+          .map((c) => c.eventId)
+        return sortEvents(db, llm, Date.now(), { eventIds: worth })
+      }),
     stories: () =>
       step.do("stories", async () => {
         const links = await eventThreadLinks(db, eventIds)
